@@ -7,7 +7,22 @@ The name comes from Latin *quaero* — "I search".
 ## Installation
 
 ```bash
+# Install to ~/.cargo/bin (default)
 cargo install --path .
+
+# Or install to ~/.local/bin
+cargo install --path . --root ~/.local
+```
+
+## Building from source
+
+```bash
+# Debug build
+cargo build
+
+# Release build (optimized, stripped)
+cargo build --release
+# Binary is at target/release/qae
 ```
 
 ## Usage
