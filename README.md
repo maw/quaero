@@ -1,6 +1,9 @@
 # qae
 
-A quick search tool that combines [ripgrep](https://github.com/BurntSushi/ripgrep) and [fd](https://github.com/sharkdp/fd) to search both file contents and file names with a single command.
+A quick search tool that combines the functionality of
+[ripgrep](https://github.com/BurntSushi/ripgrep) and
+[fd](https://github.com/sharkdp/fd) to search both file contents and file
+names with a single command.
 
 The name comes from Latin *quaero* — "I search".
 
