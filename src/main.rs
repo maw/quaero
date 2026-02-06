@@ -1,5 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
-use std::path::Path;
 use std::process;
 
 use clap::Parser;
@@ -48,6 +48,11 @@ struct Cli {
     /// Show detailed output
     #[arg(short, long)]
     verbose: bool,
+}
+
+struct ContentMatch {
+    line_number: u64,
+    line: String,
 }
 
 fn build_walker(cli: &Cli) -> io::Result<ignore::Walk> {
@@ -99,7 +104,7 @@ fn search_names(cli: &Cli) -> io::Result<Vec<String>> {
     Ok(matches)
 }
 
-fn search_content(cli: &Cli) -> io::Result<()> {
+fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<ContentMatch>>> {
     let matcher = RegexMatcherBuilder::new()
         .case_insensitive(cli.ignore_case)
         .build(&cli.pattern)
@@ -108,6 +113,8 @@ fn search_content(cli: &Cli) -> io::Result<()> {
     let mut searcher = SearcherBuilder::new()
         .line_number(true)
         .build();
+
+    let mut results: BTreeMap<String, Vec<ContentMatch>> = BTreeMap::new();
 
     for entry in build_walker(cli)? {
         let entry = match entry {
@@ -123,11 +130,22 @@ fn search_content(cli: &Cli) -> io::Result<()> {
         }
 
         let path = entry.path().to_path_buf();
+        let path_str = path.display().to_string();
         let result = searcher.search_path(
             &matcher,
             &path,
             Lossy(|lnum, line| {
-                print_content_match(&path, lnum, line);
+                let line = line
+                    .trim_end_matches('\n')
+                    .trim_end_matches('\r')
+                    .to_string();
+                results
+                    .entry(path_str.clone())
+                    .or_default()
+                    .push(ContentMatch {
+                        line_number: lnum,
+                        line,
+                    });
                 Ok(true)
             }),
         );
@@ -137,39 +155,52 @@ fn search_content(cli: &Cli) -> io::Result<()> {
         }
     }
 
-    Ok(())
-}
-
-fn print_content_match(path: &Path, line_number: u64, line: &str) {
-    let line = line.trim_end_matches('\n').trim_end_matches('\r');
-    println!("{}:{line_number}:{line}", path.display());
+    Ok(results)
 }
 
 fn run(cli: &Cli) -> io::Result<()> {
-    let search_both = !cli.names_only && !cli.content_only;
-
-    if cli.names_only || search_both {
+    if cli.names_only {
         let name_matches = search_names(cli)?;
-        if !name_matches.is_empty() {
-            if search_both {
-                println!("Filename matches:");
-            }
-            for m in &name_matches {
-                if search_both {
-                    println!("  {m}");
-                } else {
-                    println!("{m}");
-                }
-            }
+        for m in &name_matches {
+            println!("{m}");
         }
+        return Ok(());
     }
 
-    if cli.content_only || search_both {
-        if search_both {
+    if cli.content_only {
+        let content_matches = search_content(cli)?;
+        for (path, matches) in &content_matches {
+            println!("{path}");
+            for m in matches {
+                println!("  {}:{}", m.line_number, m.line);
+            }
             println!();
-            println!("Content matches:");
         }
-        search_content(cli)?;
+        return Ok(());
+    }
+
+    // Both mode: group by file
+    let name_matches: BTreeSet<String> = search_names(cli)?.into_iter().collect();
+    let content_matches = search_content(cli)?;
+
+    let all_paths: BTreeSet<&String> = name_matches.iter().chain(content_matches.keys()).collect();
+
+    let mut first = true;
+    for path in &all_paths {
+        if !first {
+            println!();
+        }
+        first = false;
+
+        println!("{path}");
+        if name_matches.contains(*path) {
+            println!("  (name match)");
+        }
+        if let Some(matches) = content_matches.get(*path) {
+            for m in matches {
+                println!("  {}:{}", m.line_number, m.line);
+            }
+        }
     }
 
     Ok(())
