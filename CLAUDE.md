@@ -20,9 +20,8 @@
 - Learning opportunity
 
 ### Development Approach
-1. **Phase 1 (MVP)**: Basic subprocess spawning of rg/fd, simple result combination
-2. **Phase 2 (Integration)**: Use ripgrep/fd as libraries where possible
-3. **Phase 3 (Sophistication)**: Parallel execution, smart merging, advanced features
+1. **Phase 1 (MVP)**: Use ripgrep/fd libraries for content and filename search
+2. **Phase 2 (Sophistication)**: Parallel execution, smart merging, advanced features
 
 ## Core Features (MVP)
 
@@ -48,17 +47,22 @@ qae --content-only "search_term"
 
 ## Technical Design
 
-### Dependencies (Initial)
-- `clap` - Command-line argument parsing (derive API)
-- `std::process` - For spawning rg/fd subprocesses
-- `crossbeam` or `rayon` - For parallel execution (Phase 2+)
+### Dependencies
+- `clap` - Command-line argument parsing
+- `grep-regex` - Regex matcher for ripgrep's searcher
+- `grep-searcher` - Content searching (ripgrep's engine)
+- `ignore` - Directory walking with .gitignore support
+- `regex` - Filename pattern matching
 
 ### Data Flow (MVP)
 1. Parse CLI arguments
-2. Spawn `fd` subprocess for filename search
-3. Spawn `rg` subprocess for content search
-4. Collect and merge results
-5. Format and display output
+2. Build regex matchers for content and filenames
+3. Use `ignore::WalkBuilder` to traverse directory tree
+4. For each file:
+   - Check filename against pattern
+   - Use `grep-searcher` to search contents
+5. Collect and merge results
+6. Format and display output
 
 ### Result Structure
 Each result should include:
@@ -134,12 +138,16 @@ cargo run -- "test" .
 
 ## Project Status
 
-**Current Phase**: Planning / Initial Setup
-**Next Steps**: 
-1. Set up basic Rust project structure
-2. Implement CLI argument parsing with clap
-3. Create basic subprocess spawning for rg/fd
-4. Implement simple result collection and display
+**Current Phase**: MVP
+**Completed**:
+1. Project structure with clap CLI parsing
+2. Content search using grep-searcher/grep-regex
+3. Filename search using regex + ignore crate
+4. Combined output with section headers
+**Next Steps**:
+1. Highlighted matches in output
+2. Parallel execution
+3. Result scoring/ranking
 
 ## Notes
 
@@ -150,7 +158,5 @@ cargo run -- "test" .
 
 ## Questions to Explore
 
-- Should we use rg/fd as libraries or as subprocesses?
 - How to best merge and deduplicate results?
 - What's the right balance of features vs. simplicity?
-- How to handle different output formats from rg/fd?
