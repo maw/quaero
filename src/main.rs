@@ -7,7 +7,6 @@ use grep_regex::RegexMatcherBuilder;
 use grep_searcher::sinks::Lossy;
 use grep_searcher::SearcherBuilder;
 use ignore::WalkBuilder;
-use regex::Regex;
 
 /// qae - Quick search combining ripgrep and fd
 ///
