@@ -4,11 +4,6 @@ A quick search tool that combines [ripgrep](https://github.com/BurntSushi/ripgre
 
 The name comes from Latin *quaero* — "I search".
 
-## Requirements
-
-- [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`)
-- [fd](https://github.com/sharkdp/fd) (`fd`)
-
 ## Installation
 
 ```bash
