@@ -128,10 +128,6 @@ cd qae
 cargo run -- "test" .
 ```
 
-### Task tracking
-
-- Use 'bd' for task tracking
-
 ### Learning Resources
 - The Rust Book: https://doc.rust-lang.org/book/
 - ripgrep source: https://github.com/BurntSushi/ripgrep
