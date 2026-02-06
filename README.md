@@ -1,6 +1,6 @@
 # qae
 
-A quick search tool that combines the functionality of
+A quick search tool that combines some of the functionality of
 [ripgrep](https://github.com/BurntSushi/ripgrep) and
 [fd](https://github.com/sharkdp/fd) to search both file contents and file
 names with a single command.

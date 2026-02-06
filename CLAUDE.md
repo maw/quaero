@@ -2,13 +2,18 @@
 
 ## Project Overview
 
-`qae` (from Latin "quaero" - I search) is a command-line tool that combines the power of `ripgrep` (rg) and `fd` to perform unified searches across both file contents and file names. It's designed to help developers quickly explore and navigate large, deeply-nested directory structures.
+`qae` (from Latin "quaero" - I search) is a command-line tool that combines
+the power of `ripgrep` (rg) and `fd` to perform unified searches across both
+file contents and file names. It's designed to help developers quickly explore
+and navigate large, deeply-nested directory structures.
 
 ## Goals
 
-- **Unified Search**: Search both file contents (via ripgrep) and file names (via fd) with a single command
+- **Unified Search**: Search both file contents (via ripgrep) and file names
+  (via fd) with a single command
 - **Learning Project**: Built in Rust as a learning vehicle for the language
-- **Sophistication**: More than just a shell wrapper - intelligent result merging, parallel execution, smart filtering
+- **Sophistication**: More than just a shell wrapper - intelligent result
+  merging, parallel execution, smart filtering
 - **Ergonomics**: Simple, intuitive CLI that feels natural to use daily
 
 ## Implementation Language: Rust
@@ -21,7 +26,8 @@
 
 ### Development Approach
 1. **Phase 1 (MVP)**: Use ripgrep/fd libraries for content and filename search
-2. **Phase 2 (Sophistication)**: Parallel execution, smart merging, advanced features
+2. **Phase 2 (Sophistication)**: Parallel execution, smart merging, advanced
+   features
 
 ## Core Features (MVP)
 
@@ -101,7 +107,8 @@ Content matches:
 ## Future Enhancements (Post-MVP)
 
 - **Caching**: Cache search results for faster repeated searches
-- **Interactive Mode**: Use something like `skim` for interactive result filtering
+- **Interactive Mode**: Use something like `skim` for interactive result
+  filtering
 - **Fuzzy Matching**: Optional fuzzy search for filenames
 - **Color Themes**: Customizable output colors
 - **Result Scoring**: Rank results by relevance
