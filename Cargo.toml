@@ -1,0 +1,8 @@
+[package]
+name = "qae"
+version = "0.1.0"
+edition = "2024"
+description = "Quick search tool combining ripgrep and fd"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
