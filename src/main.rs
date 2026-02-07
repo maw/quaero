@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
+use std::path::Path;
 use std::process;
 
 use clap::Parser;
+use globset::GlobBuilder;
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::sinks::Lossy;
 use grep_searcher::SearcherBuilder;
@@ -45,6 +47,18 @@ struct Cli {
     #[arg(short = 't', long = "type")]
     file_type: Option<String>,
 
+    /// Treat pattern as a literal string, not a regex
+    #[arg(short = 'F', long)]
+    fixed_strings: bool,
+
+    /// Treat pattern as a shell glob (implies --names-only)
+    #[arg(short = 'g', long)]
+    glob: bool,
+
+    /// Only match whole words
+    #[arg(short = 'w', long)]
+    word_regexp: bool,
+
     /// Show detailed output
     #[arg(short, long)]
     verbose: bool,
@@ -74,30 +88,79 @@ fn build_walker(cli: &Cli) -> io::Result<ignore::Walk> {
     Ok(walker.build())
 }
 
-fn search_names(cli: &Cli) -> io::Result<Vec<String>> {
-    let re = regex::RegexBuilder::new(&cli.pattern)
-        .case_insensitive(cli.ignore_case)
-        .build()
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+/// Prepare the regex pattern based on CLI flags (-F escapes, -w adds \b).
+fn prepare_regex_pattern(cli: &Cli) -> String {
+    let mut pattern = cli.pattern.clone();
+    if cli.fixed_strings {
+        pattern = regex::escape(&pattern);
+    }
+    if cli.word_regexp {
+        pattern = format!(r"\b{pattern}\b");
+    }
+    pattern
+}
 
+fn search_names(cli: &Cli) -> io::Result<Vec<String>> {
     let mut matches = Vec::new();
 
-    for entry in build_walker(cli)? {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(err) => {
-                eprintln!("qae: {err}");
+    if cli.glob {
+        let has_separator = cli.pattern.contains('/');
+        let glob = GlobBuilder::new(&cli.pattern)
+            .case_insensitive(cli.ignore_case)
+            .build()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        let matcher = glob.compile_matcher();
+
+        for entry in build_walker(cli)? {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(err) => {
+                    eprintln!("qae: {err}");
+                    continue;
+                }
+            };
+
+            if entry.path().is_dir() {
                 continue;
             }
-        };
 
-        if entry.path().is_dir() {
-            continue;
+            let path = entry.path();
+            let candidate = if has_separator {
+                path.to_string_lossy().to_string()
+            } else {
+                path.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default()
+            };
+
+            if matcher.is_match(Path::new(&candidate)) {
+                matches.push(path.display().to_string());
+            }
         }
+    } else {
+        let pattern = prepare_regex_pattern(cli);
+        let re = regex::RegexBuilder::new(&pattern)
+            .case_insensitive(cli.ignore_case)
+            .build()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
-        let path = entry.path();
-        if re.is_match(&path.to_string_lossy()) {
-            matches.push(path.display().to_string());
+        for entry in build_walker(cli)? {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(err) => {
+                    eprintln!("qae: {err}");
+                    continue;
+                }
+            };
+
+            if entry.path().is_dir() {
+                continue;
+            }
+
+            let path = entry.path();
+            if re.is_match(&path.to_string_lossy()) {
+                matches.push(path.display().to_string());
+            }
         }
     }
 
@@ -105,9 +168,10 @@ fn search_names(cli: &Cli) -> io::Result<Vec<String>> {
 }
 
 fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<ContentMatch>>> {
+    let pattern = prepare_regex_pattern(cli);
     let matcher = RegexMatcherBuilder::new()
         .case_insensitive(cli.ignore_case)
-        .build(&cli.pattern)
+        .build(&pattern)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
     let mut searcher = SearcherBuilder::new()
@@ -159,7 +223,26 @@ fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<ContentMatch>>> 
 }
 
 fn run(cli: &Cli) -> io::Result<()> {
-    if cli.names_only {
+    if cli.glob && cli.content_only {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--glob only applies to filename matching",
+        ));
+    }
+    if cli.glob && cli.fixed_strings {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--glob and --fixed-strings are mutually exclusive",
+        ));
+    }
+    if cli.glob && cli.word_regexp {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--glob and --word-regexp are mutually exclusive",
+        ));
+    }
+
+    if cli.names_only || cli.glob {
         let name_matches = search_names(cli)?;
         for m in &name_matches {
             println!("{m}");

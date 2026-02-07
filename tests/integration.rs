@@ -142,3 +142,152 @@ fn type_filter_limits_to_matching_files() {
     );
     // data.csv and hello.txt should not appear even if they had a match
 }
+
+// --- Fixed strings (-F) ---
+
+#[test]
+fn fixed_strings_treats_dot_literally() {
+    // Without -F, "hello.txt" would match "helloBtxt" etc. since . is any char
+    // With -F, only a literal "hello.txt" matches
+    let out = qae(&["-n", "-F", "hello.txt", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    assert!(text.contains("hello.txt"), "should match literal hello.txt");
+}
+
+#[test]
+fn fixed_strings_content_search() {
+    // Search for literal "(" which is a regex metacharacter
+    let out = qae(&["-c", "-F", "(", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    // greeting.rs has println!("hello") which contains "("
+    assert!(
+        text.contains("greeting.rs"),
+        "should find literal ( in greeting.rs"
+    );
+}
+
+// --- Glob (--glob / -g) ---
+
+#[test]
+fn glob_matches_by_extension() {
+    let out = qae(&["--glob", "*.rs", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    assert!(text.contains("greeting.rs"), "should find .rs files");
+    assert!(!text.contains("hello.txt"), "should not find .txt files");
+}
+
+#[test]
+fn glob_matches_by_prefix() {
+    let out = qae(&["-g", "hello*", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    assert!(text.contains("hello.txt"), "should find hello.txt");
+    assert!(!text.contains("greeting.rs"), "should not find greeting.rs");
+}
+
+#[test]
+fn glob_case_insensitive() {
+    let out = qae(&["-g", "-i", "HELLO*", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    assert!(
+        text.contains("hello.txt"),
+        "case-insensitive glob should find hello.txt"
+    );
+}
+
+#[test]
+fn glob_implies_names_only() {
+    // --glob without --names-only should still only search names
+    let out = qae(&["--glob", "*.txt", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    // Should list matching filenames, not content
+    assert!(text.contains("hello.txt"));
+    // Should not show content match annotations
+    assert!(!text.contains("(name match)"));
+}
+
+// --- Word regexp (-w) ---
+
+#[test]
+fn word_regexp_matches_whole_words() {
+    let out = qae(&["-c", "-w", "hello", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    // greeting.rs has println!("hello") — "hello" is a whole word
+    assert!(
+        text.contains("greeting.rs"),
+        "-w should match whole word 'hello'"
+    );
+}
+
+#[test]
+fn word_regexp_rejects_partial_matches() {
+    // "ello" appears inside "hello" but is not a whole word
+    let out = qae(&["-c", "-w", "ello", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    assert!(
+        !text.contains("greeting.rs"),
+        "-w should not match partial word 'ello'"
+    );
+    assert!(
+        !text.contains("hello.txt"),
+        "-w should not match partial word 'ello'"
+    );
+}
+
+#[test]
+fn fixed_strings_and_word_regexp_combined() {
+    // -F -w: literal pattern, whole word
+    let out = qae(&["-c", "-F", "-w", "hello", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    assert!(
+        text.contains("greeting.rs"),
+        "-F -w should match whole word 'hello'"
+    );
+}
+
+// --- Error cases ---
+
+fn stderr(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stderr).to_string()
+}
+
+#[test]
+fn glob_with_content_only_errors() {
+    let out = qae(&["--glob", "-c", "*.rs", "tests/fixtures/"]);
+
+    assert!(!out.status.success(), "--glob -c should fail");
+    assert!(
+        stderr(&out).contains("--glob only applies to filename matching"),
+        "should show appropriate error message"
+    );
+}
+
+#[test]
+fn glob_with_fixed_strings_errors() {
+    let out = qae(&["--glob", "-F", "*.rs", "tests/fixtures/"]);
+
+    assert!(!out.status.success(), "--glob -F should fail");
+    assert!(
+        stderr(&out).contains("--glob and --fixed-strings are mutually exclusive"),
+        "should show appropriate error message"
+    );
+}
+
+#[test]
+fn glob_with_word_regexp_errors() {
+    let out = qae(&["--glob", "-w", "*.rs", "tests/fixtures/"]);
+
+    assert!(!out.status.success(), "--glob -w should fail");
+    assert!(
+        stderr(&out).contains("--glob and --word-regexp are mutually exclusive"),
+        "should show appropriate error message"
+    );
+}
