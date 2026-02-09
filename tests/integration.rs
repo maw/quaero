@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn qae(args: &[&str]) -> Output {
@@ -9,6 +11,34 @@ fn qae(args: &[&str]) -> Output {
 
 fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+/// Create a temporary git repo with a known commit and return its path.
+/// The commit message will contain `msg_marker`. The file will contain `file_content`.
+fn make_git_repo(parent: &Path, name: &str, msg_marker: &str, file_content: &str) -> PathBuf {
+    let repo = parent.join(name);
+    fs::create_dir_all(&repo).unwrap();
+
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .env("GIT_AUTHOR_NAME", "test")
+            .env("GIT_AUTHOR_EMAIL", "test@test")
+            .env("GIT_COMMITTER_NAME", "test")
+            .env("GIT_COMMITTER_EMAIL", "test@test")
+            .output()
+            .expect("git command failed");
+        assert!(out.status.success(), "git {:?} failed: {}", args,
+            String::from_utf8_lossy(&out.stderr));
+    };
+
+    git(&["init"]);
+    fs::write(repo.join("file.txt"), file_content).unwrap();
+    git(&["add", "file.txt"]);
+    git(&["commit", "-m", msg_marker]);
+
+    repo
 }
 
 // --- Content search (-c) ---
@@ -290,4 +320,132 @@ fn glob_with_word_regexp_errors() {
         stderr(&out).contains("--glob and --word-regexp are mutually exclusive"),
         "should show appropriate error message"
     );
+}
+
+#[test]
+fn log_only_with_names_only_errors() {
+    let out = qae(&["--log-only", "-n", "test", "."]);
+
+    assert!(!out.status.success(), "--log-only -n should fail");
+    assert!(
+        stderr(&out).contains("--log-only and --names-only are mutually exclusive"),
+        "should show appropriate error message"
+    );
+}
+
+#[test]
+fn log_only_with_content_only_errors() {
+    let out = qae(&["--log-only", "-c", "test", "."]);
+
+    assert!(!out.status.success(), "--log-only -c should fail");
+    assert!(
+        stderr(&out).contains("--log-only and --content-only are mutually exclusive"),
+        "should show appropriate error message"
+    );
+}
+
+#[test]
+fn log_only_with_glob_errors() {
+    let out = qae(&["--log-only", "--glob", "*.rs", "."]);
+
+    assert!(!out.status.success(), "--log-only --glob should fail");
+    assert!(
+        stderr(&out).contains("--log-only and --glob are mutually exclusive"),
+        "should show appropriate error message"
+    );
+}
+
+// --- Git log search ---
+
+#[test]
+fn log_only_finds_commit_message() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_git_repo(tmp.path(), "repo-a", "Fix issue99001 in auth", "some content");
+
+    let out = qae(&["--log-only", "issue99001", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(out.status.success());
+    assert!(text.contains("issue99001"), "should find pattern in commit message");
+    assert!(text.contains("(git log):"), "should show git log section header");
+}
+
+#[test]
+fn log_only_case_insensitive() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_git_repo(tmp.path(), "repo-a", "Fix ISSUE99002 in auth", "some content");
+
+    let out = qae(&["--log-only", "-i", "issue99002", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(out.status.success());
+    assert!(text.contains("ISSUE99002"), "should find case-insensitive match");
+}
+
+#[test]
+fn log_only_fixed_strings() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Commit message contains literal "(test99003)" — parens are regex metacharacters
+    make_git_repo(tmp.path(), "repo-a", "Fix (test99003) bug", "some content");
+
+    let out = qae(&["--log-only", "-F", "(test99003)", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(out.status.success());
+    assert!(text.contains("test99003"), "should find literal pattern");
+}
+
+#[test]
+fn log_flag_in_default_mode() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = make_git_repo(tmp.path(), "repo-a", "Fix issue99004 in auth", "issue99004 content here");
+
+    let out = qae(&["-l", "issue99004", repo.to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(out.status.success());
+    // Should find both file content and git log
+    assert!(text.contains("file.txt"), "should find file content match");
+    assert!(text.contains("(git log):"), "should show git log section");
+    assert!(text.contains("issue99004"), "should show commit message");
+}
+
+#[test]
+fn log_flag_no_git_repo_silently_skips() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Create a plain file, no git repo
+    fs::write(tmp.path().join("test.txt"), "hello99005").unwrap();
+
+    let out = qae(&["-l", "-c", "hello99005", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(out.status.success());
+    assert!(text.contains("test.txt"), "should still find file content");
+    assert!(!text.contains("(git log)"), "should not show git log section");
+}
+
+#[test]
+fn log_discovers_child_repos() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_git_repo(tmp.path(), "repo-a", "Fix issue99006 in repo-a", "unrelated");
+    make_git_repo(tmp.path(), "repo-b", "Fix issue99006 in repo-b", "unrelated");
+
+    let out = qae(&["--log-only", "issue99006", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(out.status.success());
+    assert!(text.contains("repo-a"), "should find match in repo-a");
+    assert!(text.contains("repo-b"), "should find match in repo-b");
+}
+
+#[test]
+fn log_only_no_match_produces_empty_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    make_git_repo(tmp.path(), "repo-a", "Fix something else", "some content");
+
+    let out = qae(&["--log-only", "zzz_nomatch99007_zzz", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(out.status.success());
+    assert!(text.is_empty(), "no matches should produce empty output");
 }

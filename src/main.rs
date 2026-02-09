@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
-use std::path::Path;
-use std::process;
+use std::path::{Path, PathBuf};
+use std::process::{self, Command};
 
 use clap::Parser;
 use globset::GlobBuilder;
@@ -59,6 +59,14 @@ struct Cli {
     #[arg(short = 'w', long)]
     word_regexp: bool,
 
+    /// Include git log matches
+    #[arg(short = 'l', long)]
+    log: bool,
+
+    /// Only search git logs
+    #[arg(long)]
+    log_only: bool,
+
     /// Show detailed output
     #[arg(short, long)]
     verbose: bool,
@@ -67,6 +75,12 @@ struct Cli {
 struct ContentMatch {
     line_number: u64,
     line: String,
+}
+
+struct GitLogMatch {
+    repo: String,
+    hash: String,
+    message: String,
 }
 
 fn build_walker(cli: &Cli) -> io::Result<ignore::Walk> {
@@ -222,7 +236,119 @@ fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<ContentMatch>>> 
     Ok(results)
 }
 
+/// Discover git repositories relevant to the search path.
+///
+/// 1. If the search path is inside a git repo, include that repo.
+/// 2. Check immediate children of the search path for .git directories.
+/// Deduplicate by canonical path.
+fn discover_git_repos(search_path: &str) -> Vec<PathBuf> {
+    let mut repos = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    // Step 1: Check if search path is inside a git repo.
+    if let Ok(output) = Command::new("git")
+        .args(["-C", search_path, "rev-parse", "--show-toplevel"])
+        .output()
+    {
+        if output.status.success() {
+            let toplevel = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let path = PathBuf::from(&toplevel);
+            if let Ok(canonical) = path.canonicalize() {
+                if seen.insert(canonical) {
+                    repos.push(path);
+                }
+            }
+        }
+    }
+
+    // Step 2: Check immediate children for .git directories.
+    if let Ok(entries) = std::fs::read_dir(search_path) {
+        for entry in entries.flatten() {
+            let child = entry.path();
+            if child.is_dir() && child.join(".git").exists() {
+                if let Ok(canonical) = child.canonicalize() {
+                    if seen.insert(canonical) {
+                        repos.push(child);
+                    }
+                }
+            }
+        }
+    }
+
+    repos
+}
+
+fn search_git_log(cli: &Cli) -> io::Result<Vec<GitLogMatch>> {
+    let repos = discover_git_repos(&cli.path);
+    let mut matches = Vec::new();
+    let pattern = prepare_regex_pattern(cli);
+
+    for repo in repos {
+        let repo_str = repo.to_string_lossy().to_string();
+        let mut cmd = Command::new("git");
+        cmd.args(["-C", &repo_str, "log", "--oneline", "-E"]);
+        if cli.ignore_case {
+            cmd.arg("-i");
+        }
+        cmd.args(["--grep", &pattern]);
+
+        let output = match cmd.output() {
+            Ok(output) => output,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                if cli.log_only {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "git is not installed",
+                    ));
+                }
+                eprintln!("qae: git not found, skipping log search");
+                return Ok(matches);
+            }
+            Err(e) => {
+                eprintln!("qae: git log in {repo_str}: {e}");
+                continue;
+            }
+        };
+
+        if !output.status.success() {
+            continue;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if let Some((hash, message)) = line.split_once(' ') {
+                matches.push(GitLogMatch {
+                    repo: repo_str.clone(),
+                    hash: hash.to_string(),
+                    message: message.to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(matches)
+}
+
+/// Print git log matches, grouped by repo. Returns whether anything was printed.
+fn print_git_log(log_matches: &[GitLogMatch], first: &mut bool) {
+    let mut by_repo: BTreeMap<&str, Vec<&GitLogMatch>> = BTreeMap::new();
+    for m in log_matches {
+        by_repo.entry(&m.repo).or_default().push(m);
+    }
+    for (repo, matches) in &by_repo {
+        if !*first {
+            println!();
+        }
+        *first = false;
+        println!("{repo} (git log):");
+        for m in matches {
+            println!("  {} {}", m.hash, m.message);
+        }
+    }
+}
+
 fn run(cli: &Cli) -> io::Result<()> {
+    // Validate incompatible flag combinations.
     if cli.glob && cli.content_only {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -241,28 +367,69 @@ fn run(cli: &Cli) -> io::Result<()> {
             "--glob and --word-regexp are mutually exclusive",
         ));
     }
+    if cli.log_only && cli.names_only {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--log-only and --names-only are mutually exclusive",
+        ));
+    }
+    if cli.log_only && cli.content_only {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--log-only and --content-only are mutually exclusive",
+        ));
+    }
+    if cli.log_only && cli.glob {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--log-only and --glob are mutually exclusive",
+        ));
+    }
 
+    // Log-only mode.
+    if cli.log_only {
+        let log_matches = search_git_log(cli)?;
+        let mut first = true;
+        print_git_log(&log_matches, &mut first);
+        return Ok(());
+    }
+
+    // Names-only mode (possibly with --log appended).
     if cli.names_only || cli.glob {
         let name_matches = search_names(cli)?;
         for m in &name_matches {
             println!("{m}");
         }
-        return Ok(());
-    }
-
-    if cli.content_only {
-        let content_matches = search_content(cli)?;
-        for (path, matches) in &content_matches {
-            println!("{path}");
-            for m in matches {
-                println!("  {}:{}", m.line_number, m.line);
-            }
-            println!();
+        if cli.log {
+            let log_matches = search_git_log(cli)?;
+            let mut first = name_matches.is_empty();
+            print_git_log(&log_matches, &mut first);
         }
         return Ok(());
     }
 
-    // Both mode: group by file
+    // Content-only mode (possibly with --log appended).
+    if cli.content_only {
+        let content_matches = search_content(cli)?;
+        let mut first = true;
+        for (path, matches) in &content_matches {
+            if !first {
+                println!();
+            }
+            first = false;
+            println!("{path}");
+            for m in matches {
+                println!("  {}:{}", m.line_number, m.line);
+            }
+        }
+        if cli.log {
+            let log_matches = search_git_log(cli)?;
+            print_git_log(&log_matches, &mut first);
+        }
+        return Ok(());
+    }
+
+    // Both mode: group by file, optionally with git log.
     let name_matches: BTreeSet<String> = search_names(cli)?.into_iter().collect();
     let content_matches = search_content(cli)?;
 
@@ -284,6 +451,11 @@ fn run(cli: &Cli) -> io::Result<()> {
                 println!("  {}:{}", m.line_number, m.line);
             }
         }
+    }
+
+    if cli.log {
+        let log_matches = search_git_log(cli)?;
+        print_git_log(&log_matches, &mut first);
     }
 
     Ok(())
