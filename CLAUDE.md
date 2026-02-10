@@ -163,3 +163,15 @@ cargo run -- "test" .
 
 - How to best merge and deduplicate results?
 - What's the right balance of features vs. simplicity?
+
+## Issue Tracking
+
+This project uses **bd (beads)** for issue tracking.
+Run `bd prime` for workflow context.
+
+**Quick reference:**
+- `bd ready` - Find unblocked work
+- `bd create "Title" --type task --priority 2` - Create issue
+- `bd update <id> --status in_progress` - Claim work
+- `bd close <id>` - Complete work
+- `bd list` - See all open issues
