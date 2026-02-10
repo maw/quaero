@@ -198,47 +198,43 @@ fn fixed_strings_content_search() {
     );
 }
 
-// --- Glob (--glob / -g) ---
+// --- Glob file filter (-g) ---
 
 #[test]
-fn glob_matches_by_extension() {
-    let out = qae(&["--glob", "*.rs", "tests/fixtures/"]);
+fn glob_filters_content_search() {
+    // Only search .rs files for "hello"
+    let out = qae(&["-c", "-g", "*.rs", "hello", "tests/fixtures/"]);
     let text = stdout(&out);
 
-    assert!(text.contains("greeting.rs"), "should find .rs files");
-    assert!(!text.contains("hello.txt"), "should not find .txt files");
+    assert!(text.contains("greeting.rs"), "should find hello in .rs files");
+    assert!(!text.contains("hello.txt"), "should not search .txt files");
 }
 
 #[test]
-fn glob_matches_by_prefix() {
-    let out = qae(&["-g", "hello*", "tests/fixtures/"]);
+fn glob_filters_name_search() {
+    let out = qae(&["-n", "-g", "*.txt", "hello", "tests/fixtures/"]);
     let text = stdout(&out);
 
     assert!(text.contains("hello.txt"), "should find hello.txt");
-    assert!(!text.contains("greeting.rs"), "should not find greeting.rs");
+    assert!(!text.contains("greeting.rs"), "should not include .rs files");
 }
 
 #[test]
-fn glob_case_insensitive() {
-    let out = qae(&["-g", "-i", "HELLO*", "tests/fixtures/"]);
+fn glob_filters_default_mode() {
+    let out = qae(&["-g", "*.txt", "world", "tests/fixtures/"]);
     let text = stdout(&out);
 
-    assert!(
-        text.contains("hello.txt"),
-        "case-insensitive glob should find hello.txt"
-    );
+    assert!(text.contains("hello.txt"), "should find matches in .txt files");
+    assert!(!text.contains("greeting.rs"), "should not include .rs files");
 }
 
 #[test]
-fn glob_implies_names_only() {
-    // --glob without --names-only should still only search names
-    let out = qae(&["--glob", "*.txt", "tests/fixtures/"]);
+fn glob_with_fixed_strings() {
+    // -g and -F should work together
+    let out = qae(&["-c", "-g", "*.rs", "-F", "(", "tests/fixtures/"]);
     let text = stdout(&out);
 
-    // Should list matching filenames, not content
-    assert!(text.contains("hello.txt"));
-    // Should not show content match annotations
-    assert!(!text.contains("(name match)"));
+    assert!(text.contains("greeting.rs"), "should find ( in .rs files");
 }
 
 // --- Word regexp (-w) ---
@@ -289,38 +285,6 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).to_string()
 }
 
-#[test]
-fn glob_with_content_only_errors() {
-    let out = qae(&["--glob", "-c", "*.rs", "tests/fixtures/"]);
-
-    assert!(!out.status.success(), "--glob -c should fail");
-    assert!(
-        stderr(&out).contains("--glob only applies to filename matching"),
-        "should show appropriate error message"
-    );
-}
-
-#[test]
-fn glob_with_fixed_strings_errors() {
-    let out = qae(&["--glob", "-F", "*.rs", "tests/fixtures/"]);
-
-    assert!(!out.status.success(), "--glob -F should fail");
-    assert!(
-        stderr(&out).contains("--glob and --fixed-strings are mutually exclusive"),
-        "should show appropriate error message"
-    );
-}
-
-#[test]
-fn glob_with_word_regexp_errors() {
-    let out = qae(&["--glob", "-w", "*.rs", "tests/fixtures/"]);
-
-    assert!(!out.status.success(), "--glob -w should fail");
-    assert!(
-        stderr(&out).contains("--glob and --word-regexp are mutually exclusive"),
-        "should show appropriate error message"
-    );
-}
 
 #[test]
 fn log_only_with_names_only_errors() {
@@ -346,7 +310,7 @@ fn log_only_with_content_only_errors() {
 
 #[test]
 fn log_only_with_glob_errors() {
-    let out = qae(&["--log-only", "--glob", "*.rs", "."]);
+    let out = qae(&["--log-only", "-g", "*.rs", "test", "."]);
 
     assert!(!out.status.success(), "--log-only --glob should fail");
     assert!(

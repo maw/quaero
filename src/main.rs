@@ -1,10 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{self, Command};
 
 use clap::Parser;
-use globset::GlobBuilder;
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::sinks::Lossy;
 use grep_searcher::SearcherBuilder;
@@ -51,9 +50,9 @@ struct Cli {
     #[arg(short = 'F', long)]
     fixed_strings: bool,
 
-    /// Treat pattern as a shell glob (implies --names-only)
+    /// Filter files by glob pattern (e.g., -g '*.rs')
     #[arg(short = 'g', long)]
-    glob: bool,
+    glob: Option<String>,
 
     /// Only match whole words
     #[arg(short = 'w', long)]
@@ -89,6 +88,18 @@ fn build_walker(cli: &Cli) -> io::Result<ignore::Walk> {
         .hidden(!cli.hidden)
         .git_ignore(!cli.no_ignore);
 
+    if let Some(ref glob) = cli.glob {
+        let mut overrides = ignore::overrides::OverrideBuilder::new(&cli.path);
+        overrides
+            .add(glob)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        walker.overrides(
+            overrides
+                .build()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?,
+        );
+    }
+
     if let Some(ref ft) = cli.file_type {
         let mut types_builder = ignore::types::TypesBuilder::new();
         types_builder.add_defaults();
@@ -116,65 +127,28 @@ fn prepare_regex_pattern(cli: &Cli) -> String {
 
 fn search_names(cli: &Cli) -> io::Result<Vec<String>> {
     let mut matches = Vec::new();
+    let pattern = prepare_regex_pattern(cli);
+    let re = regex::RegexBuilder::new(&pattern)
+        .case_insensitive(cli.ignore_case)
+        .build()
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
-    if cli.glob {
-        let has_separator = cli.pattern.contains('/');
-        let glob = GlobBuilder::new(&cli.pattern)
-            .case_insensitive(cli.ignore_case)
-            .build()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-        let matcher = glob.compile_matcher();
-
-        for entry in build_walker(cli)? {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(err) => {
-                    eprintln!("qae: {err}");
-                    continue;
-                }
-            };
-
-            if entry.path().is_dir() {
+    for entry in build_walker(cli)? {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(err) => {
+                eprintln!("qae: {err}");
                 continue;
             }
+        };
 
-            let path = entry.path();
-            let candidate = if has_separator {
-                path.to_string_lossy().to_string()
-            } else {
-                path.file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default()
-            };
-
-            if matcher.is_match(Path::new(&candidate)) {
-                matches.push(path.display().to_string());
-            }
+        if entry.path().is_dir() {
+            continue;
         }
-    } else {
-        let pattern = prepare_regex_pattern(cli);
-        let re = regex::RegexBuilder::new(&pattern)
-            .case_insensitive(cli.ignore_case)
-            .build()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
-        for entry in build_walker(cli)? {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(err) => {
-                    eprintln!("qae: {err}");
-                    continue;
-                }
-            };
-
-            if entry.path().is_dir() {
-                continue;
-            }
-
-            let path = entry.path();
-            if re.is_match(&path.to_string_lossy()) {
-                matches.push(path.display().to_string());
-            }
+        let path = entry.path();
+        if re.is_match(&path.to_string_lossy()) {
+            matches.push(path.display().to_string());
         }
     }
 
@@ -349,24 +323,6 @@ fn print_git_log(log_matches: &[GitLogMatch], first: &mut bool) {
 
 fn run(cli: &Cli) -> io::Result<()> {
     // Validate incompatible flag combinations.
-    if cli.glob && cli.content_only {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "--glob only applies to filename matching",
-        ));
-    }
-    if cli.glob && cli.fixed_strings {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "--glob and --fixed-strings are mutually exclusive",
-        ));
-    }
-    if cli.glob && cli.word_regexp {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "--glob and --word-regexp are mutually exclusive",
-        ));
-    }
     if cli.log_only && cli.names_only {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -379,7 +335,7 @@ fn run(cli: &Cli) -> io::Result<()> {
             "--log-only and --content-only are mutually exclusive",
         ));
     }
-    if cli.log_only && cli.glob {
+    if cli.log_only && cli.glob.is_some() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "--log-only and --glob are mutually exclusive",
@@ -395,7 +351,7 @@ fn run(cli: &Cli) -> io::Result<()> {
     }
 
     // Names-only mode (possibly with --log appended).
-    if cli.names_only || cli.glob {
+    if cli.names_only {
         let name_matches = search_names(cli)?;
         for m in &name_matches {
             println!("{m}");

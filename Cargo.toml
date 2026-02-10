@@ -6,7 +6,6 @@ description = "Quick search tool combining ripgrep and fd"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-globset = "0.4"
 grep-regex = "0.1"
 grep-searcher = "0.1"
 ignore = "0.4"
