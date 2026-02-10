@@ -438,6 +438,28 @@ fn binary_file_not_in_names_only() {
 }
 
 #[test]
+fn log_interleaved_with_file_results() {
+    // Git log results should sort near related file results, not be appended at the end.
+    let tmp = tempfile::tempdir().unwrap();
+    // Create two repos: repo-a and repo-z (z sorts after a).
+    make_git_repo(tmp.path(), "repo-a", "Fix issue99008 in repo-a", "issue99008 here");
+    make_git_repo(tmp.path(), "repo-z", "unrelated commit", "issue99008 also here");
+
+    // Search with -l in both mode: should find file content in both repos + git log in repo-a.
+    let out = qae(&["-l", "issue99008", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(out.status.success());
+    // repo-a git log should appear near repo-a file results, before repo-z results.
+    let git_log_pos = text.find("(git log):").expect("should have git log section");
+    let repo_z_pos = text.find("repo-z").expect("should have repo-z results");
+    assert!(
+        git_log_pos < repo_z_pos,
+        "git log for repo-a should appear before repo-z results.\nOutput:\n{text}"
+    );
+}
+
+#[test]
 fn log_only_no_match_produces_empty_output() {
     let tmp = tempfile::tempdir().unwrap();
     make_git_repo(tmp.path(), "repo-a", "Fix something else", "some content");

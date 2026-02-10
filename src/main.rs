@@ -329,21 +329,40 @@ fn search_git_log(cli: &Cli) -> io::Result<Vec<GitLogMatch>> {
     Ok(matches)
 }
 
-/// Print git log matches, grouped by repo. Returns whether anything was printed.
-fn print_git_log(log_matches: &[GitLogMatch], first: &mut bool) {
+/// Convert git log matches into output blocks keyed by repo path for interleaved sorting.
+fn git_log_blocks(log_matches: &[GitLogMatch]) -> Vec<(String, Vec<String>)> {
     let mut by_repo: BTreeMap<&str, Vec<&GitLogMatch>> = BTreeMap::new();
     for m in log_matches {
         by_repo.entry(&m.repo).or_default().push(m);
     }
-    for (repo, matches) in &by_repo {
-        if !*first {
+    by_repo
+        .into_iter()
+        .map(|(repo, matches)| {
+            let mut lines = vec![format!("{repo} (git log):")];
+            for m in matches {
+                lines.push(format!("  {} {}", m.hash, m.message));
+            }
+            // Sort after all files within the repo directory.
+            (format!("{repo}/\x7f"), lines)
+        })
+        .collect()
+}
+
+/// Sort output blocks by key and print with blank lines between multi-line blocks.
+fn print_blocks(blocks: &mut Vec<(String, Vec<String>)>) {
+    blocks.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut prev_multi = false;
+    let mut first = true;
+    for (_, lines) in blocks.iter() {
+        let multi = lines.len() > 1;
+        if !first && (multi || prev_multi) {
             println!();
         }
-        *first = false;
-        println!("{repo} (git log):");
-        for m in matches {
-            println!("  {} {}", m.hash, m.message);
+        first = false;
+        for line in lines {
+            println!("{line}");
         }
+        prev_multi = multi;
     }
 }
 
@@ -371,88 +390,85 @@ fn run(cli: &Cli) -> io::Result<()> {
     // Log-only mode.
     if cli.log_only {
         let log_matches = search_git_log(cli)?;
-        let mut first = true;
-        print_git_log(&log_matches, &mut first);
+        let mut blocks = git_log_blocks(&log_matches);
+        print_blocks(&mut blocks);
         return Ok(());
     }
 
-    // Names-only mode (possibly with --log appended).
+    // Names-only mode (possibly with --log interleaved).
     if cli.names_only {
         let name_matches = search_names(cli)?;
-        for m in &name_matches {
-            println!("{m}");
-        }
+        let mut blocks: Vec<(String, Vec<String>)> = name_matches
+            .into_iter()
+            .map(|m| (m.clone(), vec![m]))
+            .collect();
         if cli.log {
-            let log_matches = search_git_log(cli)?;
-            let mut first = name_matches.is_empty();
-            print_git_log(&log_matches, &mut first);
+            blocks.extend(git_log_blocks(&search_git_log(cli)?));
         }
+        print_blocks(&mut blocks);
         return Ok(());
     }
 
-    // Content-only mode (possibly with --log appended).
+    // Content-only mode (possibly with --log interleaved).
     if cli.content_only {
         let content_matches = search_content(cli)?;
-        let mut first = true;
-        for (path, matches) in &content_matches {
-            if !first {
-                println!();
-            }
-            first = false;
-            println!("{path}");
-            for m in matches {
-                match m {
-                    ContentMatch::Line { line_number, line } => {
-                        println!("  {line_number}:{line}");
-                    }
-                    ContentMatch::BinaryFile => {
-                        println!("  (binary file matches)");
+        let mut blocks: Vec<(String, Vec<String>)> = content_matches
+            .iter()
+            .map(|(path, matches)| {
+                let mut lines = vec![path.clone()];
+                for m in matches {
+                    match m {
+                        ContentMatch::Line { line_number, line } => {
+                            lines.push(format!("  {line_number}:{line}"));
+                        }
+                        ContentMatch::BinaryFile => {
+                            lines.push("  (binary file matches)".to_string());
+                        }
                     }
                 }
-            }
-        }
+                (path.clone(), lines)
+            })
+            .collect();
         if cli.log {
-            let log_matches = search_git_log(cli)?;
-            print_git_log(&log_matches, &mut first);
+            blocks.extend(git_log_blocks(&search_git_log(cli)?));
         }
+        print_blocks(&mut blocks);
         return Ok(());
     }
 
-    // Both mode: group by file, optionally with git log.
+    // Both mode: group by file, optionally with git log interleaved.
     let name_matches: BTreeSet<String> = search_names(cli)?.into_iter().collect();
     let content_matches = search_content(cli)?;
 
     let all_paths: BTreeSet<&String> = name_matches.iter().chain(content_matches.keys()).collect();
 
-    let mut first = true;
-    for path in &all_paths {
-        if !first {
-            println!();
-        }
-        first = false;
-
-        println!("{path}");
-        if name_matches.contains(*path) {
-            println!("  (name match)");
-        }
-        if let Some(matches) = content_matches.get(*path) {
-            for m in matches {
-                match m {
-                    ContentMatch::Line { line_number, line } => {
-                        println!("  {line_number}:{line}");
-                    }
-                    ContentMatch::BinaryFile => {
-                        println!("  (binary file matches)");
+    let mut blocks: Vec<(String, Vec<String>)> = all_paths
+        .iter()
+        .map(|path| {
+            let mut lines = vec![path.to_string()];
+            if name_matches.contains(*path) {
+                lines.push("  (name match)".to_string());
+            }
+            if let Some(matches) = content_matches.get(*path) {
+                for m in matches {
+                    match m {
+                        ContentMatch::Line { line_number, line } => {
+                            lines.push(format!("  {line_number}:{line}"));
+                        }
+                        ContentMatch::BinaryFile => {
+                            lines.push("  (binary file matches)".to_string());
+                        }
                     }
                 }
             }
-        }
-    }
+            (path.to_string(), lines)
+        })
+        .collect();
 
     if cli.log {
-        let log_matches = search_git_log(cli)?;
-        print_git_log(&log_matches, &mut first);
+        blocks.extend(git_log_blocks(&search_git_log(cli)?));
     }
+    print_blocks(&mut blocks);
 
     Ok(())
 }
