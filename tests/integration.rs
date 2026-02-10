@@ -470,3 +470,53 @@ fn log_only_no_match_produces_empty_output() {
     assert!(out.status.success());
     assert!(text.is_empty(), "no matches should produce empty output");
 }
+
+// --- Ignore / exclude (-x) ---
+
+#[test]
+fn ignore_excludes_files_from_content_search() {
+    let out = qae(&["-c", "-x", "*.txt", "hello", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    assert!(text.contains("greeting.rs"), "should find hello in .rs files");
+    assert!(!text.contains("hello.txt"), "should exclude .txt files");
+}
+
+#[test]
+fn ignore_excludes_files_from_name_search() {
+    let out = qae(&["-n", "-x", "*.rs", "greeting", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    assert!(!text.contains("greeting.rs"), "should exclude .rs files");
+}
+
+#[test]
+fn ignore_multiple_patterns() {
+    let out = qae(&["-c", "-x", "*.txt", "-x", "*.csv", "hello", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    assert!(text.contains("greeting.rs"), "should find hello in .rs files");
+    assert!(!text.contains("hello.txt"), "should exclude .txt files");
+    assert!(!text.contains("data.csv"), "should exclude .csv files");
+}
+
+#[test]
+fn ignore_composable_with_glob() {
+    // Include only .txt files, but exclude hello*
+    let out = qae(&["-c", "-g", "*.txt", "-x", "hello*", "world", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    // hello.txt is the only .txt with "world", but it's excluded by -x
+    assert!(!text.contains("hello.txt"), "hello.txt should be excluded");
+}
+
+#[test]
+fn log_only_with_ignore_errors() {
+    let out = qae(&["--log-only", "-x", "*.rs", "test", "."]);
+
+    assert!(!out.status.success(), "--log-only -x should fail");
+    assert!(
+        stderr(&out).contains("--log-only and --ignore are mutually exclusive"),
+        "should show appropriate error message"
+    );
+}

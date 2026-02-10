@@ -53,6 +53,10 @@ struct Cli {
     #[arg(short = 'g', long)]
     glob: Option<String>,
 
+    /// Exclude files matching glob pattern (repeatable)
+    #[arg(short = 'x', long = "ignore", action = clap::ArgAction::Append)]
+    exclude: Vec<String>,
+
     /// Only match whole words
     #[arg(short = 'w', long)]
     word_regexp: bool,
@@ -114,11 +118,18 @@ fn build_walker(cli: &Cli) -> io::Result<ignore::Walk> {
         .hidden(!cli.hidden)
         .git_ignore(!cli.no_ignore);
 
-    if let Some(ref glob) = cli.glob {
+    if cli.glob.is_some() || !cli.exclude.is_empty() {
         let mut overrides = ignore::overrides::OverrideBuilder::new(&cli.path);
-        overrides
-            .add(glob)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        if let Some(ref glob) = cli.glob {
+            overrides
+                .add(glob)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        }
+        for pattern in &cli.exclude {
+            overrides
+                .add(&format!("!{pattern}"))
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        }
         walker.overrides(
             overrides
                 .build()
@@ -384,6 +395,12 @@ fn run(cli: &Cli) -> io::Result<()> {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "--log-only and --glob are mutually exclusive",
+        ));
+    }
+    if cli.log_only && !cli.exclude.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--log-only and --ignore are mutually exclusive",
         ));
     }
 
