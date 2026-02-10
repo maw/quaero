@@ -48,8 +48,23 @@ qae -i --hidden "pattern"
 
 # Filter by file type
 qae -t rust "pattern"
+
+# Literal string search (no regex)
+qae -F "exact.match"
+
+# Glob matching on file names
+qae -g "*.rs"
+
+# Whole-word matching
+qae -w "main"
+
+# Include git log (commit messages) in search
+qae -l "refactor"
+
+# Search only git log
+qae --log-only "bugfix"
 ```
 
 ## Status
 
-Early development — CLI skeleton only.
+Early development.
