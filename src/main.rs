@@ -5,8 +5,7 @@ use std::process::{self, Command};
 
 use clap::Parser;
 use grep_regex::RegexMatcherBuilder;
-use grep_searcher::sinks::Lossy;
-use grep_searcher::SearcherBuilder;
+use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkFinish, SinkMatch};
 use ignore::WalkBuilder;
 
 /// qae - Quick search combining ripgrep and fd
@@ -71,9 +70,36 @@ struct Cli {
     verbose: bool,
 }
 
-struct ContentMatch {
-    line_number: u64,
-    line: String,
+enum ContentMatch {
+    Line { line_number: u64, line: String },
+    BinaryFile,
+}
+
+/// Sink that collects content matches and detects binary files.
+struct ContentSink {
+    matches: Vec<ContentMatch>,
+    saw_binary: bool,
+}
+
+impl Sink for ContentSink {
+    type Error = io::Error;
+
+    fn matched(&mut self, _searcher: &Searcher, mat: &SinkMatch<'_>) -> Result<bool, io::Error> {
+        let line_number = mat.line_number().unwrap_or(0);
+        let line = String::from_utf8_lossy(mat.bytes())
+            .trim_end_matches('\n')
+            .trim_end_matches('\r')
+            .to_string();
+        self.matches.push(ContentMatch::Line { line_number, line });
+        Ok(true)
+    }
+
+    fn finish(&mut self, _searcher: &Searcher, finish: &SinkFinish) -> Result<(), io::Error> {
+        if finish.binary_byte_offset().is_some() {
+            self.saw_binary = true;
+        }
+        Ok(())
+    }
 }
 
 struct GitLogMatch {
@@ -164,6 +190,7 @@ fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<ContentMatch>>> 
 
     let mut searcher = SearcherBuilder::new()
         .line_number(true)
+        .binary_detection(BinaryDetection::quit(b'\x00'))
         .build();
 
     let mut results: BTreeMap<String, Vec<ContentMatch>> = BTreeMap::new();
@@ -183,27 +210,26 @@ fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<ContentMatch>>> 
 
         let path = entry.path().to_path_buf();
         let path_str = path.display().to_string();
-        let result = searcher.search_path(
-            &matcher,
-            &path,
-            Lossy(|lnum, line| {
-                let line = line
-                    .trim_end_matches('\n')
-                    .trim_end_matches('\r')
-                    .to_string();
-                results
-                    .entry(path_str.clone())
-                    .or_default()
-                    .push(ContentMatch {
-                        line_number: lnum,
-                        line,
-                    });
-                Ok(true)
-            }),
-        );
+        let mut sink = ContentSink {
+            matches: Vec::new(),
+            saw_binary: false,
+        };
+        let result = searcher.search_path(&matcher, &path, &mut sink);
 
         if let Err(err) = result {
             eprintln!("qae: {}: {err}", path.display());
+            continue;
+        }
+
+        if sink.saw_binary {
+            // File had matches but also contained binary data.
+            // Drop the raw lines and show a summary instead.
+            results
+                .entry(path_str)
+                .or_default()
+                .push(ContentMatch::BinaryFile);
+        } else if !sink.matches.is_empty() {
+            results.insert(path_str, sink.matches);
         }
     }
 
@@ -375,7 +401,14 @@ fn run(cli: &Cli) -> io::Result<()> {
             first = false;
             println!("{path}");
             for m in matches {
-                println!("  {}:{}", m.line_number, m.line);
+                match m {
+                    ContentMatch::Line { line_number, line } => {
+                        println!("  {line_number}:{line}");
+                    }
+                    ContentMatch::BinaryFile => {
+                        println!("  (binary file matches)");
+                    }
+                }
             }
         }
         if cli.log {
@@ -404,7 +437,14 @@ fn run(cli: &Cli) -> io::Result<()> {
         }
         if let Some(matches) = content_matches.get(*path) {
             for m in matches {
-                println!("  {}:{}", m.line_number, m.line);
+                match m {
+                    ContentMatch::Line { line_number, line } => {
+                        println!("  {line_number}:{line}");
+                    }
+                    ContentMatch::BinaryFile => {
+                        println!("  (binary file matches)");
+                    }
+                }
             }
         }
     }

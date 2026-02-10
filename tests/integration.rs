@@ -403,6 +403,41 @@ fn log_discovers_child_repos() {
 }
 
 #[test]
+fn binary_file_shows_placeholder() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Create a binary file containing a NUL byte alongside the search term.
+    let bin_path = tmp.path().join("data.bin");
+    fs::write(&bin_path, b"hello\x00world").unwrap();
+
+    let out = qae(&["hello", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(out.status.success());
+    assert!(
+        text.contains("(binary file matches)"),
+        "binary file should show placeholder, got: {text}"
+    );
+    // Raw binary content should NOT appear.
+    assert!(
+        !text.contains("hello"),
+        "should not print raw binary content, got: {text}"
+    );
+}
+
+#[test]
+fn binary_file_not_in_names_only() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin_path = tmp.path().join("data.bin");
+    fs::write(&bin_path, b"hello\x00world").unwrap();
+
+    // Names-only should not show binary placeholder (no content search).
+    let out = qae(&["--names-only", "hello", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+    assert!(out.status.success());
+    assert!(!text.contains("binary"), "names-only should skip content search");
+}
+
+#[test]
 fn log_only_no_match_produces_empty_output() {
     let tmp = tempfile::tempdir().unwrap();
     make_git_repo(tmp.path(), "repo-a", "Fix something else", "some content");
