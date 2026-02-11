@@ -65,6 +65,30 @@ qae -l "refactor"
 qae --log-only "bugfix"
 ```
 
+## Ignore files
+
+qae respects `.ignore` files, which use the same glob syntax as `.gitignore`
+but are not tied to git. Place a `.ignore` file in any directory to exclude
+files and directories from search results:
+
+```
+# .ignore
+*.log
+build/
+node_modules/
+```
+
+This is useful for excluding build artifacts, logs, or vendor directories
+without polluting `.gitignore`. The `--no-ignore` flag disables both
+`.gitignore` and `.ignore` processing.
+
+Precedence (highest to lowest):
+1. Command-line flags (`-x`, `-g`, `--no-ignore`)
+2. `.ignore`
+3. `.gitignore`
+4. `.git/info/exclude`
+5. Global gitignore
+
 ## Status
 
 Early development.

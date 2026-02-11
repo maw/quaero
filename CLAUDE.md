@@ -57,7 +57,7 @@ qae --content-only "search_term"
 - `clap` - Command-line argument parsing
 - `grep-regex` - Regex matcher for ripgrep's searcher
 - `grep-searcher` - Content searching (ripgrep's engine)
-- `ignore` - Directory walking with .gitignore support
+- `ignore` - Directory walking with .gitignore and .ignore support
 - `regex` - Filename pattern matching
 
 ### Data Flow (MVP)
@@ -90,7 +90,7 @@ Each result should include:
 - `-v, --verbose` - Show detailed output
 - `-i, --ignore-case` - Case-insensitive search
 - `--hidden` - Include hidden files
-- `--no-ignore` - Don't respect .gitignore
+- `--no-ignore` - Don't respect .gitignore or .ignore
 - `-t, --type FILTER` - Filter by file type (e.g., rust, python)
 
 ### Output Format

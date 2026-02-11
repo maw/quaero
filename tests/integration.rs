@@ -520,3 +520,61 @@ fn log_only_with_ignore_errors() {
         "should show appropriate error message"
     );
 }
+
+// --- .ignore file support ---
+
+#[test]
+fn dot_ignore_file_excludes_from_content_search() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(tmp.path().join("keep.txt"), "findme here").unwrap();
+    fs::write(tmp.path().join("skip.log"), "findme here too").unwrap();
+    fs::write(tmp.path().join(".ignore"), "*.log\n").unwrap();
+
+    let out = qae(&["-c", "findme", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(text.contains("keep.txt"), "should find match in non-ignored file");
+    assert!(!text.contains("skip.log"), ".ignore should exclude .log files");
+}
+
+#[test]
+fn dot_ignore_file_excludes_from_name_search() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(tmp.path().join("hello.txt"), "content").unwrap();
+    fs::write(tmp.path().join("hello.log"), "content").unwrap();
+    fs::write(tmp.path().join(".ignore"), "*.log\n").unwrap();
+
+    let out = qae(&["-n", "hello", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(text.contains("hello.txt"), "should find non-ignored file by name");
+    assert!(!text.contains("hello.log"), ".ignore should exclude .log files from name search");
+}
+
+#[test]
+fn dot_ignore_file_excludes_directory() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(tmp.path().join("root.txt"), "findme").unwrap();
+    let build_dir = tmp.path().join("build");
+    fs::create_dir(&build_dir).unwrap();
+    fs::write(build_dir.join("output.txt"), "findme").unwrap();
+    fs::write(tmp.path().join(".ignore"), "build/\n").unwrap();
+
+    let out = qae(&["-c", "findme", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(text.contains("root.txt"), "should find match in root");
+    assert!(!text.contains("output.txt"), ".ignore should exclude build/ directory");
+}
+
+#[test]
+fn no_ignore_flag_overrides_dot_ignore() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(tmp.path().join("data.log"), "findme").unwrap();
+    fs::write(tmp.path().join(".ignore"), "*.log\n").unwrap();
+
+    let out = qae(&["-c", "--no-ignore", "findme", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(text.contains("data.log"), "--no-ignore should override .ignore");
+}

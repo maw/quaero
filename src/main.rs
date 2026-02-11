@@ -12,7 +12,19 @@ use ignore::WalkBuilder;
 ///
 /// Search both file contents and file names with a single command.
 #[derive(Parser, Debug)]
-#[command(name = "qae", version, about)]
+#[command(name = "qae", version, about, after_help = "\
+Ignore files:\n  \
+qae respects .ignore files (same syntax as .gitignore) for excluding\n  \
+files and directories from search results. Place a .ignore file in any\n  \
+directory; patterns apply to that directory and its children. This is\n  \
+independent of git — useful for excluding build artifacts, logs, etc.\n  \
+in non-git directories or without polluting .gitignore.\n\n  \
+Precedence (highest to lowest):\n    \
+1. Command-line flags (-x, -g, --no-ignore)\n    \
+2. .ignore\n    \
+3. .gitignore\n    \
+4. .git/info/exclude\n    \
+5. Global gitignore")]
 struct Cli {
     /// Search pattern (regex)
     pattern: String,
@@ -116,7 +128,8 @@ fn build_walker(cli: &Cli) -> io::Result<ignore::Walk> {
     let mut walker = WalkBuilder::new(&cli.path);
     walker
         .hidden(!cli.hidden)
-        .git_ignore(!cli.no_ignore);
+        .git_ignore(!cli.no_ignore)
+        .ignore(!cli.no_ignore);
 
     if cli.glob.is_some() || !cli.exclude.is_empty() {
         let mut overrides = ignore::overrides::OverrideBuilder::new(&cli.path);
