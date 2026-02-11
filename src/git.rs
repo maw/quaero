@@ -63,7 +63,7 @@ pub(crate) fn search_git_log(cli: &Cli) -> io::Result<Vec<GitLogMatch>> {
         let repo_str = repo.to_string_lossy().to_string();
         let mut cmd = Command::new("git");
         cmd.args(["-C", &repo_str, "log", "--oneline", "-E"]);
-        if cli.ignore_case {
+        if cli.is_case_insensitive() {
             cmd.arg("-i");
         }
         cmd.args(["--grep", &pattern]);

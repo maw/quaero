@@ -20,7 +20,7 @@ Precedence (highest to lowest):\n    \
 5. Global gitignore")]
 pub(crate) struct Cli {
     /// Search pattern (regex)
-    #[arg(required_unless_present = "completions")]
+    #[arg(required_unless_present_any = ["completions", "type_list"])]
     pub pattern: Option<String>,
 
     /// Directory to search (defaults to current directory)
@@ -39,13 +39,25 @@ pub(crate) struct Cli {
     #[arg(short, long)]
     pub ignore_case: bool,
 
+    /// Case-sensitive search (overrides --ignore-case and --smart-case)
+    #[arg(long)]
+    pub case_sensitive: bool,
+
+    /// Smart case: case-insensitive unless pattern contains uppercase
+    #[arg(short = 'S', long)]
+    pub smart_case: bool,
+
     /// Include hidden files
     #[arg(long)]
     pub hidden: bool,
 
-    /// Don't respect .gitignore
+    /// Don't respect .gitignore or .ignore
     #[arg(long)]
     pub no_ignore: bool,
+
+    /// Don't respect version control ignore files (.gitignore)
+    #[arg(long)]
+    pub no_ignore_vcs: bool,
 
     /// Filter by file type (e.g., rust, python)
     #[arg(short = 't', long = "type")]
@@ -55,9 +67,9 @@ pub(crate) struct Cli {
     #[arg(short = 'F', long)]
     pub fixed_strings: bool,
 
-    /// Filter files by glob pattern (e.g., -g '*.rs')
-    #[arg(short = 'g', long)]
-    pub glob: Option<String>,
+    /// Filter files by glob pattern (repeatable, e.g., -g '*.rs')
+    #[arg(short = 'g', long, action = clap::ArgAction::Append)]
+    pub glob: Vec<String>,
 
     /// Exclude files matching glob pattern (repeatable)
     #[arg(short = 'x', long = "ignore", action = clap::ArgAction::Append)]
@@ -83,6 +95,38 @@ pub(crate) struct Cli {
     #[arg(short, long)]
     pub verbose: bool,
 
+    /// Color output mode (never, auto, always, ansi)
+    #[arg(long, value_name = "WHEN")]
+    pub color: Option<String>,
+
+    /// List supported file types and exit
+    #[arg(long)]
+    pub type_list: bool,
+
+    /// Lines of context before each match (not yet implemented)
+    #[arg(short = 'B', long)]
+    pub before_context: Option<usize>,
+
+    /// Lines of context after each match (not yet implemented)
+    #[arg(short = 'A', long)]
+    pub after_context: Option<usize>,
+
+    // rg-compat no-op flags (accepted silently for deadgrep compatibility)
+    #[arg(long, hide = true)]
+    pub no_config: bool,
+
+    #[arg(long, hide = true)]
+    pub line_number: bool,
+
+    #[arg(long, hide = true)]
+    pub no_column: bool,
+
+    #[arg(long, hide = true)]
+    pub with_filename: bool,
+
+    #[arg(long, hide = true)]
+    pub no_heading: bool,
+
     /// Generate shell completions and exit
     #[arg(long, value_name = "SHELL")]
     pub completions: Option<Shell>,
@@ -93,5 +137,26 @@ impl Cli {
     /// On by default; --no-log disables, -l re-enables.
     pub fn wants_log(&self) -> bool {
         !self.no_log || self.log
+    }
+
+    /// Determine if the search should be case-insensitive based on flag precedence.
+    ///
+    /// Precedence (highest to lowest):
+    /// 1. --case-sensitive -> case-sensitive
+    /// 2. --ignore-case -> case-insensitive
+    /// 3. --smart-case -> case-insensitive if pattern has no uppercase chars
+    /// 4. default -> case-sensitive
+    pub fn is_case_insensitive(&self) -> bool {
+        if self.case_sensitive {
+            return false;
+        }
+        if self.ignore_case {
+            return true;
+        }
+        if self.smart_case {
+            let pattern = self.pattern.as_deref().unwrap_or("");
+            return !pattern.chars().any(|c| c.is_uppercase());
+        }
+        false
     }
 }
