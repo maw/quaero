@@ -610,3 +610,233 @@ fn no_ignore_flag_overrides_dot_ignore() {
 
     assert!(text.contains("data.log"), "--no-ignore should override .ignore");
 }
+
+// --- rg-compat output mode (--color=ansi) ---
+
+#[test]
+fn ansi_output_has_rg_escape_codes() {
+    let out = qae(&["--color=ansi", "world", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    // Path should be wrapped in magenta: \x1b[0m\x1b[35m ... \x1b[0m
+    assert!(text.contains("\x1b[0m\x1b[35m"), "path should be magenta");
+    // Line number should be wrapped in green: \x1b[0m\x1b[32m ... \x1b[0m
+    assert!(text.contains("\x1b[0m\x1b[32m"), "line number should be green");
+    // Match should be bold red: \x1b[0m\x1b[1m\x1b[31m ... \x1b[0m
+    assert!(text.contains("\x1b[0m\x1b[1m\x1b[31m"), "match should be bold red");
+}
+
+#[test]
+fn ansi_output_format_matches_rg() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(tmp.path().join("test.txt"), "foo bar baz\n").unwrap();
+
+    let out = qae(&["--color=ansi", "bar", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    // Should be: MAGENTA_path RESET : GREEN_1 RESET : foo BOLD_RED bar RESET  baz
+    let path = tmp.path().join("test.txt").to_string_lossy().to_string();
+    let expected = format!(
+        "\x1b[0m\x1b[35m{path}\x1b[0m:\x1b[0m\x1b[32m1\x1b[0m:foo \x1b[0m\x1b[1m\x1b[31mbar\x1b[0m baz"
+    );
+    assert_eq!(text.trim(), expected, "ANSI output should be byte-identical to rg format");
+}
+
+#[test]
+fn ansi_output_multiple_matches_per_line() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(tmp.path().join("test.txt"), "ab ab ab\n").unwrap();
+
+    let out = qae(&["--color=ansi", "ab", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    // Count occurrences of bold-red escape sequence
+    let bold_red = "\x1b[0m\x1b[1m\x1b[31m";
+    let count = text.matches(bold_red).count();
+    assert_eq!(count, 3, "should highlight all 3 occurrences of 'ab'");
+}
+
+#[test]
+fn ansi_output_binary_file_warning_on_stderr() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(tmp.path().join("data.bin"), b"hello\x00world").unwrap();
+
+    let out = qae(&["--color=ansi", "hello", tmp.path().to_str().unwrap()]);
+
+    // Binary file should produce a WARNING on stderr, not stdout
+    let err = stderr(&out);
+    assert!(err.contains("WARNING"), "binary file should produce stderr warning");
+    assert!(err.contains("data.bin"), "warning should mention the file");
+
+    // stdout should NOT contain binary content
+    let text = stdout(&out);
+    assert!(!text.contains("hello"), "binary content should not appear on stdout");
+}
+
+#[test]
+fn ansi_output_is_case_sensitive_by_default() {
+    let out = qae(&["--color=ansi", "hello", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    // greeting.rs has lowercase "hello" — should match
+    assert!(text.contains("greeting.rs"), "should find lowercase hello");
+    // hello.txt has "Hello" with capital H — should not match
+    assert!(!text.contains("hello.txt"), "case-sensitive: should not match Hello");
+}
+
+// --- Smart case (--smart-case / -S) ---
+
+#[test]
+fn smart_case_lowercase_pattern_is_insensitive() {
+    let out = qae(&["-c", "-S", "hello", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    // "hello" (all lowercase) + smart-case → case-insensitive
+    assert!(text.contains("greeting.rs"), "should match lowercase hello");
+    assert!(text.contains("hello.txt"), "smart-case: lowercase pattern should match Hello");
+}
+
+#[test]
+fn smart_case_uppercase_pattern_is_sensitive() {
+    let out = qae(&["-c", "-S", "Hello", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    // "Hello" (has uppercase) + smart-case → case-sensitive
+    assert!(text.contains("hello.txt"), "should match Hello in hello.txt");
+    assert!(!text.contains("greeting.rs"), "smart-case: uppercase pattern should not match lowercase hello");
+}
+
+#[test]
+fn smart_case_with_ansi_output() {
+    let out = qae(&["--color=ansi", "--smart-case", "hello", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    // Lowercase pattern + smart-case → insensitive → should match "Hello" in hello.txt
+    assert!(text.contains("hello.txt"), "smart-case should work in ANSI mode");
+}
+
+// --- --case-sensitive overrides ---
+
+#[test]
+fn case_sensitive_overrides_smart_case() {
+    let out = qae(&["-c", "--smart-case", "--case-sensitive", "hello", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    // Even though smart-case would make "hello" insensitive,
+    // --case-sensitive takes priority
+    assert!(text.contains("greeting.rs"), "should match lowercase hello");
+    assert!(!text.contains("hello.txt"), "--case-sensitive should override --smart-case");
+}
+
+#[test]
+fn case_sensitive_overrides_ignore_case() {
+    let out = qae(&["-c", "-i", "--case-sensitive", "hello", "tests/fixtures/"]);
+    let text = stdout(&out);
+
+    assert!(text.contains("greeting.rs"), "should match lowercase hello");
+    assert!(!text.contains("hello.txt"), "--case-sensitive should override -i");
+}
+
+// --- --type-list ---
+
+#[test]
+fn type_list_prints_file_types() {
+    let out = qae(&["--type-list"]);
+    let text = stdout(&out);
+
+    assert!(out.status.success(), "--type-list should succeed");
+    // Should contain well-known types
+    assert!(text.contains("rust"), "should list rust type");
+    assert!(text.contains("*.rs"), "rust type should include *.rs glob");
+    assert!(text.contains("python"), "should list python type");
+}
+
+#[test]
+fn type_list_works_without_pattern() {
+    // --type-list should not require a pattern
+    let out = qae(&["--type-list"]);
+    assert!(out.status.success(), "--type-list should work without a pattern");
+    assert!(!stdout(&out).is_empty(), "should produce output");
+}
+
+// --- --no-ignore-vcs ---
+
+#[test]
+fn no_ignore_vcs_disables_gitignore_but_keeps_dot_ignore() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    fs::create_dir_all(&repo).unwrap();
+
+    // Init a git repo
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .env("GIT_AUTHOR_NAME", "test")
+            .env("GIT_AUTHOR_EMAIL", "test@test")
+            .env("GIT_COMMITTER_NAME", "test")
+            .env("GIT_COMMITTER_EMAIL", "test@test")
+            .output()
+            .expect("git command failed");
+        assert!(out.status.success(), "git {:?} failed", args);
+    };
+
+    git(&["init"]);
+
+    // .gitignore excludes *.log, .ignore excludes *.tmp
+    fs::write(repo.join(".gitignore"), "*.log\n").unwrap();
+    fs::write(repo.join(".ignore"), "*.tmp\n").unwrap();
+    fs::write(repo.join("keep.txt"), "findme").unwrap();
+    fs::write(repo.join("skip.log"), "findme").unwrap();
+    fs::write(repo.join("skip.tmp"), "findme").unwrap();
+
+    git(&["add", "."]);
+    git(&["commit", "-m", "init"]);
+
+    // Without --no-ignore-vcs: both .log and .tmp are excluded
+    let out = qae(&["-c", "findme", repo.to_str().unwrap()]);
+    let text = stdout(&out);
+    assert!(text.contains("keep.txt"));
+    assert!(!text.contains("skip.log"), ".gitignore should exclude .log");
+    assert!(!text.contains("skip.tmp"), ".ignore should exclude .tmp");
+
+    // With --no-ignore-vcs: .log is included (gitignore disabled), .tmp still excluded (.ignore kept)
+    let out = qae(&["-c", "--no-ignore-vcs", "findme", repo.to_str().unwrap()]);
+    let text = stdout(&out);
+    assert!(text.contains("keep.txt"));
+    assert!(text.contains("skip.log"), "--no-ignore-vcs should include .log files");
+    assert!(!text.contains("skip.tmp"), ".ignore should still exclude .tmp");
+}
+
+// --- rg-compat no-op flags ---
+
+#[test]
+fn noop_flags_accepted_silently() {
+    // These flags should be accepted without error (deadgrep passes them)
+    let out = qae(&[
+        "--color=ansi",
+        "--line-number",
+        "--no-heading",
+        "--no-column",
+        "--with-filename",
+        "--no-config",
+        "world",
+        "tests/fixtures/",
+    ]);
+
+    assert!(out.status.success(), "no-op flags should not cause errors");
+    let text = stdout(&out);
+    assert!(text.contains("world"), "search should still work with no-op flags");
+}
+
+// --- Context flags accepted ---
+
+#[test]
+fn context_flags_accepted() {
+    // -B and -A should be accepted (even if not yet implemented)
+    let out = qae(&["-c", "-B", "2", "-A", "2", "hello", "tests/fixtures/"]);
+
+    assert!(out.status.success(), "-B/-A flags should be accepted");
+    let text = stdout(&out);
+    assert!(text.contains("greeting.rs"), "search should still work with context flags");
+}
