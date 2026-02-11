@@ -7,6 +7,7 @@ use clap::Parser;
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkFinish, SinkMatch};
 use ignore::WalkBuilder;
+use regex::Regex;
 
 /// qae - Quick search combining ripgrep and fd
 ///
@@ -27,7 +28,8 @@ Precedence (highest to lowest):\n    \
 5. Global gitignore")]
 struct Cli {
     /// Search pattern (regex)
-    pattern: String,
+    #[arg(required_unless_present = "type_list")]
+    pattern: Option<String>,
 
     /// Directory to search (defaults to current directory)
     #[arg(default_value = ".")]
@@ -45,13 +47,25 @@ struct Cli {
     #[arg(short, long)]
     ignore_case: bool,
 
+    /// Case-sensitive search (overrides --ignore-case and --smart-case)
+    #[arg(long)]
+    case_sensitive: bool,
+
+    /// Smart case: case-insensitive unless pattern contains uppercase
+    #[arg(short = 'S', long)]
+    smart_case: bool,
+
     /// Include hidden files
     #[arg(long)]
     hidden: bool,
 
-    /// Don't respect .gitignore
+    /// Don't respect .gitignore or .ignore
     #[arg(long)]
     no_ignore: bool,
+
+    /// Don't respect version control ignore files (.gitignore)
+    #[arg(long)]
+    no_ignore_vcs: bool,
 
     /// Filter by file type (e.g., rust, python)
     #[arg(short = 't', long = "type")]
@@ -61,9 +75,9 @@ struct Cli {
     #[arg(short = 'F', long)]
     fixed_strings: bool,
 
-    /// Filter files by glob pattern (e.g., -g '*.rs')
-    #[arg(short = 'g', long)]
-    glob: Option<String>,
+    /// Filter files by glob pattern (repeatable, e.g., -g '*.rs')
+    #[arg(short = 'g', long, action = clap::ArgAction::Append)]
+    glob: Vec<String>,
 
     /// Exclude files matching glob pattern (repeatable)
     #[arg(short = 'x', long = "ignore", action = clap::ArgAction::Append)]
@@ -84,6 +98,38 @@ struct Cli {
     /// Show detailed output
     #[arg(short, long)]
     verbose: bool,
+
+    /// Color output mode (never, auto, always, ansi)
+    #[arg(long, value_name = "WHEN")]
+    color: Option<String>,
+
+    /// List supported file types and exit
+    #[arg(long)]
+    type_list: bool,
+
+    /// Lines of context before each match (not yet implemented)
+    #[arg(short = 'B', long)]
+    before_context: Option<usize>,
+
+    /// Lines of context after each match (not yet implemented)
+    #[arg(short = 'A', long)]
+    after_context: Option<usize>,
+
+    // rg-compat no-op flags (accepted silently for deadgrep compatibility)
+    #[arg(long, hide = true)]
+    no_config: bool,
+
+    #[arg(long, hide = true)]
+    line_number: bool,
+
+    #[arg(long, hide = true)]
+    no_column: bool,
+
+    #[arg(long, hide = true)]
+    with_filename: bool,
+
+    #[arg(long, hide = true)]
+    no_heading: bool,
 }
 
 enum ContentMatch {
@@ -124,16 +170,37 @@ struct GitLogMatch {
     message: String,
 }
 
+/// Determine if the search should be case-insensitive based on flag precedence.
+///
+/// Precedence (highest to lowest):
+/// 1. --case-sensitive -> case-sensitive
+/// 2. --ignore-case -> case-insensitive
+/// 3. --smart-case -> case-insensitive if pattern has no uppercase chars
+/// 4. default -> case-sensitive
+fn is_case_insensitive(cli: &Cli) -> bool {
+    if cli.case_sensitive {
+        return false;
+    }
+    if cli.ignore_case {
+        return true;
+    }
+    if cli.smart_case {
+        let pattern = cli.pattern.as_deref().unwrap_or("");
+        return !pattern.chars().any(|c| c.is_uppercase());
+    }
+    false
+}
+
 fn build_walker(cli: &Cli) -> io::Result<ignore::Walk> {
     let mut walker = WalkBuilder::new(&cli.path);
     walker
         .hidden(!cli.hidden)
-        .git_ignore(!cli.no_ignore)
+        .git_ignore(!cli.no_ignore && !cli.no_ignore_vcs)
         .ignore(!cli.no_ignore);
 
-    if cli.glob.is_some() || !cli.exclude.is_empty() {
+    if !cli.glob.is_empty() || !cli.exclude.is_empty() {
         let mut overrides = ignore::overrides::OverrideBuilder::new(&cli.path);
-        if let Some(ref glob) = cli.glob {
+        for glob in &cli.glob {
             overrides
                 .add(glob)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
@@ -165,7 +232,7 @@ fn build_walker(cli: &Cli) -> io::Result<ignore::Walk> {
 
 /// Prepare the regex pattern based on CLI flags (-F escapes, -w adds \b).
 fn prepare_regex_pattern(cli: &Cli) -> String {
-    let mut pattern = cli.pattern.clone();
+    let mut pattern = cli.pattern.clone().unwrap_or_default();
     if cli.fixed_strings {
         pattern = regex::escape(&pattern);
     }
@@ -179,7 +246,7 @@ fn search_names(cli: &Cli) -> io::Result<Vec<String>> {
     let mut matches = Vec::new();
     let pattern = prepare_regex_pattern(cli);
     let re = regex::RegexBuilder::new(&pattern)
-        .case_insensitive(cli.ignore_case)
+        .case_insensitive(is_case_insensitive(cli))
         .build()
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
@@ -208,7 +275,7 @@ fn search_names(cli: &Cli) -> io::Result<Vec<String>> {
 fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<ContentMatch>>> {
     let pattern = prepare_regex_pattern(cli);
     let matcher = RegexMatcherBuilder::new()
-        .case_insensitive(cli.ignore_case)
+        .case_insensitive(is_case_insensitive(cli))
         .build(&pattern)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
@@ -311,7 +378,7 @@ fn search_git_log(cli: &Cli) -> io::Result<Vec<GitLogMatch>> {
         let repo_str = repo.to_string_lossy().to_string();
         let mut cmd = Command::new("git");
         cmd.args(["-C", &repo_str, "log", "--oneline", "-E"]);
-        if cli.ignore_case {
+        if is_case_insensitive(cli) {
             cmd.arg("-i");
         }
         cmd.args(["--grep", &pattern]);
@@ -390,7 +457,38 @@ fn print_blocks(blocks: &mut Vec<(String, Vec<String>)>) {
     }
 }
 
+/// Highlight regex matches within a line using ANSI escape codes (rg-compatible).
+fn highlight_matches(line: &str, re: &Regex) -> String {
+    let mut result = String::new();
+    let mut last_end = 0;
+    for mat in re.find_iter(line) {
+        result.push_str(&line[last_end..mat.start()]);
+        result.push_str("\x1b[0m\x1b[1m\x1b[31m");
+        result.push_str(mat.as_str());
+        result.push_str("\x1b[0m");
+        last_end = mat.end();
+    }
+    result.push_str(&line[last_end..]);
+    result
+}
+
+/// Format a single content match line in rg's ANSI output format.
+fn format_rg_line(path: &str, line_num: u64, content: &str, re: &Regex) -> String {
+    let highlighted = highlight_matches(content, re);
+    format!("\x1b[0m\x1b[35m{path}\x1b[0m:\x1b[0m\x1b[32m{line_num}\x1b[0m:{highlighted}")
+}
+
 fn run(cli: &Cli) -> io::Result<()> {
+    // --type-list: print file type definitions and exit.
+    if cli.type_list {
+        let mut types_builder = ignore::types::TypesBuilder::new();
+        types_builder.add_defaults();
+        for def in types_builder.definitions() {
+            println!("{}: {}", def.name(), def.globs().join(", "));
+        }
+        return Ok(());
+    }
+
     // Validate incompatible flag combinations.
     if cli.log_only && cli.names_only {
         return Err(io::Error::new(
@@ -404,7 +502,7 @@ fn run(cli: &Cli) -> io::Result<()> {
             "--log-only and --content-only are mutually exclusive",
         ));
     }
-    if cli.log_only && cli.glob.is_some() {
+    if cli.log_only && !cli.glob.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "--log-only and --glob are mutually exclusive",
@@ -415,6 +513,32 @@ fn run(cli: &Cli) -> io::Result<()> {
             io::ErrorKind::InvalidInput,
             "--log-only and --ignore are mutually exclusive",
         ));
+    }
+
+    // rg-compat ANSI output mode (used by deadgrep.el).
+    if cli.color.as_deref() == Some("ansi") {
+        let content_matches = search_content(cli)?;
+        let pattern = prepare_regex_pattern(cli);
+        let re = regex::RegexBuilder::new(&pattern)
+            .case_insensitive(is_case_insensitive(cli))
+            .build()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+
+        for (path, matches) in &content_matches {
+            for m in matches {
+                match m {
+                    ContentMatch::Line { line_number, line } => {
+                        println!("{}", format_rg_line(path, *line_number, line, &re));
+                    }
+                    ContentMatch::BinaryFile => {
+                        eprintln!(
+                            "WARNING: stopped searching binary file \x1b[0m\x1b[35m{path}\x1b[0m after match"
+                        );
+                    }
+                }
+            }
+        }
+        return Ok(());
     }
 
     // Log-only mode.
