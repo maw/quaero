@@ -160,8 +160,8 @@ pub(crate) fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<Conte
             continue;
         }
 
-        if sink.saw_binary {
-            // File had matches but also contained binary data.
+        if sink.saw_binary && !sink.matches.is_empty() {
+            // File had real matches before binary data was detected.
             // Drop the raw lines and show a summary instead.
             results
                 .entry(path_str)

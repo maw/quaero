@@ -418,7 +418,7 @@ fn log_discovers_child_repos() {
 }
 
 #[test]
-fn binary_file_shows_placeholder() {
+fn binary_file_silently_skipped() {
     let tmp = tempfile::tempdir().unwrap();
     // Create a binary file containing a NUL byte alongside the search term.
     let bin_path = tmp.path().join("data.bin");
@@ -428,14 +428,31 @@ fn binary_file_shows_placeholder() {
     let text = stdout(&out);
 
     assert!(out.status.success());
+    // Binary files should be silently skipped (no false positives).
     assert!(
-        text.contains("(binary file matches)"),
-        "binary file should show placeholder, got: {text}"
+        !text.contains("data.bin"),
+        "binary file should not appear in output, got: {text}"
     );
-    // Raw binary content should NOT appear.
+}
+
+#[test]
+fn binary_file_no_match_not_reported() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Binary file that does NOT contain the search pattern.
+    let bin_path = tmp.path().join("data.bin");
+    fs::write(&bin_path, b"unrelated\x00binary\x00data").unwrap();
+
+    let out = qae(&["hello", tmp.path().to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(out.status.success());
     assert!(
-        !text.contains("hello"),
-        "should not print raw binary content, got: {text}"
+        !text.contains("data.bin"),
+        "binary file without matching pattern should not appear, got: {text}"
+    );
+    assert!(
+        !text.contains("binary file matches"),
+        "should not show binary placeholder for non-matching binary file, got: {text}"
     );
 }
 
