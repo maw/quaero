@@ -67,9 +67,13 @@ pub(crate) struct Cli {
     #[arg(short = 'w', long)]
     pub word_regexp: bool,
 
-    /// Include git log matches
-    #[arg(short = 'l', long)]
+    /// Include git log matches [kept for backwards compat; on by default now]
+    #[arg(short = 'l', long, hide = true)]
     pub log: bool,
+
+    /// Disable git log search [git log is searched by default]
+    #[arg(long = "no-log")]
+    pub no_log: bool,
 
     /// Only search git logs
     #[arg(long)]
@@ -82,4 +86,12 @@ pub(crate) struct Cli {
     /// Generate shell completions and exit
     #[arg(long, value_name = "SHELL")]
     pub completions: Option<Shell>,
+}
+
+impl Cli {
+    /// Whether git log search should be performed.
+    /// On by default; --no-log disables, -l re-enables.
+    pub fn wants_log(&self) -> bool {
+        !self.no_log || self.log
+    }
 }

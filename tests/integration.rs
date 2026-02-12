@@ -360,11 +360,12 @@ fn log_only_fixed_strings() {
 }
 
 #[test]
-fn log_flag_in_default_mode() {
+fn log_included_by_default() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = make_git_repo(tmp.path(), "repo-a", "Fix issue99004 in auth", "issue99004 content here");
 
-    let out = qae(&["-l", "issue99004", repo.to_str().unwrap()]);
+    // No -l flag needed — git log is on by default now
+    let out = qae(&["issue99004", repo.to_str().unwrap()]);
     let text = stdout(&out);
 
     assert!(out.status.success());
@@ -375,12 +376,26 @@ fn log_flag_in_default_mode() {
 }
 
 #[test]
-fn log_flag_no_git_repo_silently_skips() {
+fn no_log_disables_git_log() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = make_git_repo(tmp.path(), "repo-a", "Fix issue99009 in auth", "issue99009 content here");
+
+    let out = qae(&["--no-log", "issue99009", repo.to_str().unwrap()]);
+    let text = stdout(&out);
+
+    assert!(out.status.success());
+    assert!(text.contains("file.txt"), "should find file content match");
+    assert!(!text.contains("(git log)"), "should not show git log section with --no-log");
+}
+
+#[test]
+fn no_git_repo_silently_skips_log() {
     let tmp = tempfile::tempdir().unwrap();
     // Create a plain file, no git repo
     fs::write(tmp.path().join("test.txt"), "hello99005").unwrap();
 
-    let out = qae(&["-l", "-c", "hello99005", tmp.path().to_str().unwrap()]);
+    // Log is on by default but should silently skip when there's no git repo
+    let out = qae(&["-c", "hello99005", tmp.path().to_str().unwrap()]);
     let text = stdout(&out);
 
     assert!(out.status.success());
@@ -445,8 +460,8 @@ fn log_interleaved_with_file_results() {
     make_git_repo(tmp.path(), "repo-a", "Fix issue99008 in repo-a", "issue99008 here");
     make_git_repo(tmp.path(), "repo-z", "unrelated commit", "issue99008 also here");
 
-    // Search with -l in both mode: should find file content in both repos + git log in repo-a.
-    let out = qae(&["-l", "issue99008", tmp.path().to_str().unwrap()]);
+    // Git log is on by default: should find file content in both repos + git log in repo-a.
+    let out = qae(&["issue99008", tmp.path().to_str().unwrap()]);
     let text = stdout(&out);
 
     assert!(out.status.success());

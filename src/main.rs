@@ -56,7 +56,7 @@ fn run(cli: &Cli) -> io::Result<()> {
             .into_iter()
             .map(|m| (m.clone(), vec![m]))
             .collect();
-        if cli.log {
+        if cli.wants_log() {
             blocks.extend(git_log_blocks(&search_git_log(cli)?));
         }
         print_blocks(&mut blocks);
@@ -83,7 +83,7 @@ fn run(cli: &Cli) -> io::Result<()> {
                 (path.clone(), lines)
             })
             .collect();
-        if cli.log {
+        if cli.wants_log() {
             blocks.extend(git_log_blocks(&search_git_log(cli)?));
         }
         print_blocks(&mut blocks);
@@ -119,7 +119,7 @@ fn run(cli: &Cli) -> io::Result<()> {
         })
         .collect();
 
-    if cli.log {
+    if cli.wants_log() {
         blocks.extend(git_log_blocks(&search_git_log(cli)?));
     }
     print_blocks(&mut blocks);
