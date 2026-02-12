@@ -657,21 +657,18 @@ fn ansi_output_multiple_matches_per_line() {
 }
 
 #[test]
-fn ansi_output_binary_file_warning_on_stderr() {
+fn ansi_output_binary_file_silently_skipped() {
     let tmp = tempfile::tempdir().unwrap();
     fs::write(tmp.path().join("data.bin"), b"hello\x00world").unwrap();
 
     let out = qae(&["--color=ansi", "hello", tmp.path().to_str().unwrap()]);
 
-    // Binary file should produce a WARNING on stderr, not stdout
-    let err = stderr(&out);
-    assert!(err.contains("WARNING"), "binary file should produce stderr warning");
-    assert!(err.contains("data.bin"), "warning should mention the file");
-
-    // stdout should NOT contain binary content
+    // Binary files should produce no output at all.
     let text = stdout(&out);
+    assert!(!text.contains("data.bin"), "binary file should not appear on stdout");
     assert!(!text.contains("hello"), "binary content should not appear on stdout");
 }
+
 
 #[test]
 fn ansi_output_is_case_sensitive_by_default() {
