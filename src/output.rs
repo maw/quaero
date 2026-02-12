@@ -13,7 +13,7 @@ pub(crate) fn git_log_blocks(log_matches: &[GitLogMatch]) -> Vec<(String, Vec<St
         .map(|(repo, matches)| {
             let mut lines = vec![format!("{repo} (git log):")];
             for m in matches {
-                lines.push(format!("  {} {}", m.hash, m.message));
+                lines.push(format!("  {} {} {}", m.hash, m.date, m.message));
             }
             // Sort after all files within the repo directory.
             (format!("{repo}/\x7f"), lines)

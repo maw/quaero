@@ -9,6 +9,7 @@ use crate::search::prepare_regex_pattern;
 pub(crate) struct GitLogMatch {
     pub repo: String,
     pub hash: String,
+    pub date: String,
     pub message: String,
 }
 
@@ -62,7 +63,14 @@ pub(crate) fn search_git_log(cli: &Cli) -> io::Result<Vec<GitLogMatch>> {
     for repo in repos {
         let repo_str = repo.to_string_lossy().to_string();
         let mut cmd = Command::new("git");
-        cmd.args(["-C", &repo_str, "log", "--oneline", "-E"]);
+        cmd.args([
+            "-C",
+            &repo_str,
+            "log",
+            "--format=%h %ad %s",
+            "--date=short",
+            "-E",
+        ]);
         if cli.ignore_case {
             cmd.arg("-i");
         }
@@ -92,10 +100,14 @@ pub(crate) fn search_git_log(cli: &Cli) -> io::Result<Vec<GitLogMatch>> {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
-            if let Some((hash, message)) = line.split_once(' ') {
+            let mut parts = line.splitn(3, ' ');
+            if let (Some(hash), Some(date), Some(message)) =
+                (parts.next(), parts.next(), parts.next())
+            {
                 matches.push(GitLogMatch {
                     repo: repo_str.clone(),
                     hash: hash.to_string(),
+                    date: date.to_string(),
                     message: message.to_string(),
                 });
             }
