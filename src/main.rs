@@ -3,7 +3,8 @@ use std::io;
 use std::path::PathBuf;
 use std::process::{self, Command};
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::Shell;
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkFinish, SinkMatch};
 use ignore::WalkBuilder;
@@ -27,7 +28,8 @@ Precedence (highest to lowest):\n    \
 5. Global gitignore")]
 struct Cli {
     /// Search pattern (regex)
-    pattern: String,
+    #[arg(required_unless_present = "completions")]
+    pattern: Option<String>,
 
     /// Directory to search (defaults to current directory)
     #[arg(default_value = ".")]
@@ -84,6 +86,10 @@ struct Cli {
     /// Show detailed output
     #[arg(short, long)]
     verbose: bool,
+
+    /// Generate shell completions and exit
+    #[arg(long, value_name = "SHELL")]
+    completions: Option<Shell>,
 }
 
 enum ContentMatch {
@@ -165,7 +171,7 @@ fn build_walker(cli: &Cli) -> io::Result<ignore::Walk> {
 
 /// Prepare the regex pattern based on CLI flags (-F escapes, -w adds \b).
 fn prepare_regex_pattern(cli: &Cli) -> String {
-    let mut pattern = cli.pattern.clone();
+    let mut pattern = cli.pattern.clone().expect("pattern is required");
     if cli.fixed_strings {
         pattern = regex::escape(&pattern);
     }
@@ -505,6 +511,11 @@ fn run(cli: &Cli) -> io::Result<()> {
 
 fn main() {
     let cli = Cli::parse();
+
+    if let Some(shell) = cli.completions {
+        clap_complete::generate(shell, &mut Cli::command(), "qae", &mut io::stdout());
+        return;
+    }
 
     if cli.verbose {
         eprintln!("{cli:?}");
