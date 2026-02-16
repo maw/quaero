@@ -71,7 +71,7 @@ pub(crate) fn search_git_log(cli: &Cli) -> io::Result<Vec<GitLogMatch>> {
             "--date=short",
             "-E",
         ]);
-        if cli.ignore_case {
+        if cli.is_case_insensitive() {
             cmd.arg("-i");
         }
         cmd.args(["--grep", &pattern]);

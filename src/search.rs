@@ -43,12 +43,12 @@ pub(crate) fn build_walker(cli: &Cli) -> io::Result<ignore::Walk> {
     let mut walker = WalkBuilder::new(&cli.path);
     walker
         .hidden(!cli.hidden)
-        .git_ignore(!cli.no_ignore)
+        .git_ignore(!cli.no_ignore && !cli.no_ignore_vcs)
         .ignore(!cli.no_ignore);
 
-    if cli.glob.is_some() || !cli.exclude.is_empty() {
+    if !cli.glob.is_empty() || !cli.exclude.is_empty() {
         let mut overrides = ignore::overrides::OverrideBuilder::new(&cli.path);
-        if let Some(ref glob) = cli.glob {
+        for glob in &cli.glob {
             overrides
                 .add(glob)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
@@ -80,7 +80,7 @@ pub(crate) fn build_walker(cli: &Cli) -> io::Result<ignore::Walk> {
 
 /// Prepare the regex pattern based on CLI flags (-F escapes, -w adds \b).
 pub(crate) fn prepare_regex_pattern(cli: &Cli) -> String {
-    let mut pattern = cli.pattern.clone().expect("pattern is required");
+    let mut pattern = cli.pattern.clone().unwrap_or_default();
     if cli.fixed_strings {
         pattern = regex::escape(&pattern);
     }
@@ -94,7 +94,7 @@ pub(crate) fn search_names(cli: &Cli) -> io::Result<Vec<String>> {
     let mut matches = Vec::new();
     let pattern = prepare_regex_pattern(cli);
     let re = regex::RegexBuilder::new(&pattern)
-        .case_insensitive(cli.ignore_case)
+        .case_insensitive(cli.is_case_insensitive())
         .build()
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
@@ -123,7 +123,7 @@ pub(crate) fn search_names(cli: &Cli) -> io::Result<Vec<String>> {
 pub(crate) fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<ContentMatch>>> {
     let pattern = prepare_regex_pattern(cli);
     let matcher = RegexMatcherBuilder::new()
-        .case_insensitive(cli.ignore_case)
+        .case_insensitive(cli.is_case_insensitive())
         .build(&pattern)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
