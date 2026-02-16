@@ -1,5 +1,7 @@
 # qae
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/maw/quaero)
+
 A quick search tool that combines some of the functionality of
 [ripgrep](https://github.com/BurntSushi/ripgrep) and
 [fd](https://github.com/sharkdp/fd) to search both file contents and file
