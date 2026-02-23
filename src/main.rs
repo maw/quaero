@@ -131,7 +131,7 @@ fn main() {
     let cli = Cli::parse();
 
     if let Some(shell) = cli.completions {
-        clap_complete::generate(shell, &mut Cli::command(), "qae", &mut io::stdout());
+        clap_complete::generate(shell, &mut Cli::command(), "qro", &mut io::stdout());
         return;
     }
 
@@ -140,7 +140,7 @@ fn main() {
     }
 
     if let Err(err) = run(&cli) {
-        eprintln!("qae: {err}");
+        eprintln!("qro: {err}");
         process::exit(1);
     }
 }
