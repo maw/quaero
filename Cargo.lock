@@ -417,7 +417,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "qae"
+name = "qro"
 version = "0.2.1"
 dependencies = [
  "clap",
