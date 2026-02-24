@@ -85,11 +85,11 @@ pub(crate) fn search_git_log(cli: &Cli) -> io::Result<Vec<GitLogMatch>> {
                         "git is not installed",
                     ));
                 }
-                eprintln!("qae: git not found, skipping log search");
+                eprintln!("qro: git not found, skipping log search");
                 return Ok(matches);
             }
             Err(e) => {
-                eprintln!("qae: git log in {repo_str}: {e}");
+                eprintln!("qro: git log in {repo_str}: {e}");
                 continue;
             }
         };

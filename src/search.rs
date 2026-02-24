@@ -102,7 +102,7 @@ pub(crate) fn search_names(cli: &Cli) -> io::Result<Vec<String>> {
         let entry = match entry {
             Ok(e) => e,
             Err(err) => {
-                eprintln!("qae: {err}");
+                eprintln!("qro: {err}");
                 continue;
             }
         };
@@ -138,7 +138,7 @@ pub(crate) fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<Conte
         let entry = match entry {
             Ok(e) => e,
             Err(err) => {
-                eprintln!("qae: {err}");
+                eprintln!("qro: {err}");
                 continue;
             }
         };
@@ -156,7 +156,7 @@ pub(crate) fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<Conte
         let result = searcher.search_path(&matcher, &path, &mut sink);
 
         if let Err(err) = result {
-            eprintln!("qae: {}: {err}", path.display());
+            eprintln!("qro: {}: {err}", path.display());
             continue;
         }
 

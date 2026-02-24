@@ -1,11 +1,9 @@
-# qae
+# qro
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/maw/quaero)
 
-A quick search tool that combines some of the functionality of
-[ripgrep](https://github.com/BurntSushi/ripgrep) and
-[fd](https://github.com/sharkdp/fd) to search both file contents and file
-names with a single command.
+A quick search tool that recursively searches content, filenames, and git log
+messages.
 
 The name comes from Latin *quaero* — "I search".
 
@@ -27,49 +25,49 @@ cargo build
 
 # Release build (optimized, stripped)
 cargo build --release
-# Binary is at target/release/qae
+# Binary is at target/release/qro
 ```
 
 ## Usage
 
 ```bash
 # Search file names and contents
-qae "pattern"
+qro "pattern"
 
 # Search in a specific directory
-qae "pattern" /path/to/dir
+qro "pattern" /path/to/dir
 
 # Only file names
-qae -n "pattern"
+qro -n "pattern"
 
 # Only file contents
-qae -c "pattern"
+qro -c "pattern"
 
 # Case-insensitive, include hidden files
-qae -i --hidden "pattern"
+qro -i --hidden "pattern"
 
 # Filter by file type
-qae -t rust "pattern"
+qro -t rust "pattern"
 
 # Literal string search (no regex)
-qae -F "exact.match"
+qro -F "exact.match"
 
 # Glob matching on file names
-qae -g "*.rs"
+qro -g "*.rs"
 
 # Whole-word matching
-qae -w "main"
+qro -w "main"
 
 # Include git log (commit messages) in search
-qae -l "refactor"
+qro -l "refactor"
 
 # Search only git log
-qae --log-only "bugfix"
+qro --log-only "bugfix"
 ```
 
 ## Ignore files
 
-qae respects `.ignore` files, which use the same glob syntax as `.gitignore`
+qro respects `.ignore` files, which use the same glob syntax as `.gitignore`
 but are not tied to git. Place a `.ignore` file in any directory to exclude
 files and directories from search results:
 
@@ -94,3 +92,11 @@ Precedence (highest to lowest):
 ## Status
 
 Early development.
+
+## Similar tools
+
+- [ripgrep](https://github.com/BurntSushi/ripgrep): faster than qro and more
+  fully featured.
+- [ag](https://github.com/ggreer/the_silver_searcher)
+- [ack](https://github.com/petdance/ack3)
+- [fd](https://github.com/sharkdp/fd)

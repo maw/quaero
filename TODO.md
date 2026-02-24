@@ -10,7 +10,7 @@
 
 - They're annoying
 - Maybe more to the point, deal better with files that are mostly text but
-  contain some garbage.  Running `qae` should not make your terminal beep!
+  contain some garbage.  Running `qro` should not make your terminal beep!
 
 ## do something about matches many chars into long lines
 
@@ -27,11 +27,11 @@
 ## deadgrep
 
 - I use deadgrep all the time, can't live without it.  It would be cool if we
-  could teach deadgrep to use qae.  I think this likely would involve changing
-  qae's output format (optionaly?) as well as some changes to deadgrep.
+  could teach deadgrep to use qro.  I think this likely would involve changing
+  qro's output format (optionaly?) as well as some changes to deadgrep.
 
 ## change the binary name
 
-- qae isn't a great abbreviation.  qro would be better but it reads a bit like
+- qro isn't a great abbreviation.  qro would be better but it reads a bit like
   a tool for doing things with QR codes.  (It also is the abbreviation for the
   state of Querétaro).

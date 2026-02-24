@@ -1,8 +1,8 @@
-# qae - Quick Search Tool
+# qro - Quick Search Tool
 
 ## Project Overview
 
-`qae` (from Latin "quaero" - I search) is a command-line tool that combines
+`qro` (from Latin "quaero" - I search) is a command-line tool that combines
 the power of `ripgrep` (rg) and `fd` to perform unified searches across both
 file contents and file names. It's designed to help developers quickly explore
 and navigate large, deeply-nested directory structures.
@@ -34,16 +34,16 @@ and navigate large, deeply-nested directory structures.
 ### Basic Usage
 ```bash
 # Search for pattern in both file names and contents
-qae "search_term"
+qro "search_term"
 
 # Search in specific directory
-qae "search_term" /path/to/dir
+qro "search_term" /path/to/dir
 
 # Search only file names
-qae --names-only "search_term"
+qro --names-only "search_term"
 
 # Search only file contents
-qae --content-only "search_term"
+qro --content-only "search_term"
 ```
 
 ### Command Structure
@@ -120,8 +120,8 @@ Content matches:
 ### Getting Started
 ```bash
 # Create project
-cargo new qae
-cd qae
+cargo new qro
+cd qro
 
 # Add dependencies to Cargo.toml
 # Start with basic CLI parsing
