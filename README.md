@@ -2,10 +2,8 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/maw/quaero)
 
-A quick search tool that combines some of the functionality of
-[ripgrep](https://github.com/BurntSushi/ripgrep) and
-[fd](https://github.com/sharkdp/fd) to search both file contents and file
-names with a single command.
+A quick search tool that recursively searches content, filenames, and git log
+messages.
 
 The name comes from Latin *quaero* — "I search".
 
@@ -94,3 +92,11 @@ Precedence (highest to lowest):
 ## Status
 
 Early development.
+
+## Similar tools
+
+- [ripgrep](https://github.com/BurntSushi/ripgrep): faster than qro and more
+  fully featured.
+- [ag](https://github.com/ggreer/the_silver_searcher)
+- [ack](https://github.com/petdance/ack3)
+- [fd](https://github.com/sharkdp/fd)
