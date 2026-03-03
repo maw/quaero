@@ -12,7 +12,7 @@ use clap::{CommandFactory, Parser};
 use cli::Cli;
 use git::search_git_log;
 use output::{git_log_blocks, print_blocks};
-use search::{search_content, search_names, ContentMatch};
+use search::{regex_hint, search_content, search_names, ContentMatch};
 
 fn run(cli: &Cli) -> io::Result<()> {
     // Validate incompatible flag combinations.
@@ -141,6 +141,11 @@ fn main() {
 
     if let Err(err) = run(&cli) {
         eprintln!("qro: {err}");
+        if let Some(pattern) = &cli.pattern {
+            if let Some(hint) = regex_hint(pattern) {
+                eprintln!("\n{hint}");
+            }
+        }
         process::exit(1);
     }
 }

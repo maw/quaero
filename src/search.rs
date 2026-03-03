@@ -120,6 +120,64 @@ pub(crate) fn search_names(cli: &Cli) -> io::Result<Vec<String>> {
     Ok(matches)
 }
 
+/// Suggest a corrected pattern when a regex parse error occurs.
+///
+/// Returns a human-readable hint if the pattern looks like it uses
+/// shell/glob syntax instead of regex syntax.
+pub(crate) fn regex_hint(pattern: &str) -> Option<String> {
+    // Check for brace alternation: {foo,bar} → (foo|bar)
+    if let Some(corrected) = fix_brace_alternation(pattern) {
+        return Some(format!(
+            "hint: it looks like you used shell brace syntax; try regex alternation instead:\n  qro '{corrected}'"
+        ));
+    }
+
+    // Check for leading glob star: *foo or **/ → .*
+    if pattern.starts_with("**") {
+        return Some(
+            "hint: `**` is glob syntax; in regex use `.*` to match any characters".to_string(),
+        );
+    }
+    if pattern.starts_with('*') {
+        return Some(
+            "hint: a leading `*` is glob syntax; in regex use `.*` to match any characters, or `\\*` for a literal asterisk".to_string(),
+        );
+    }
+
+    None
+}
+
+/// Replace `{a,b,c}` with `(a|b|c)` throughout the pattern.
+/// Returns `None` if no brace alternation was found.
+fn fix_brace_alternation(pattern: &str) -> Option<String> {
+    let mut result = String::with_capacity(pattern.len());
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut i = 0;
+    let mut found = false;
+
+    while i < chars.len() {
+        if chars[i] == '{' {
+            // Scan forward for a matching '}' that contains at least one ','
+            if let Some(close) = chars[i + 1..].iter().position(|&c| c == '}') {
+                let close = i + 1 + close;
+                let inner: String = chars[i + 1..close].iter().collect();
+                if inner.contains(',') {
+                    found = true;
+                    result.push('(');
+                    result.push_str(&inner.replace(',', "|"));
+                    result.push(')');
+                    i = close + 1;
+                    continue;
+                }
+            }
+        }
+        result.push(chars[i]);
+        i += 1;
+    }
+
+    if found { Some(result) } else { None }
+}
+
 pub(crate) fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<ContentMatch>>> {
     let pattern = prepare_regex_pattern(cli);
     let matcher = RegexMatcherBuilder::new()
@@ -173,4 +231,53 @@ pub(crate) fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<Conte
     }
 
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hint_brace_alternation() {
+        let hint = regex_hint("{foo,bar}::baz").unwrap();
+        assert!(hint.contains("(foo|bar)::baz"), "got: {hint}");
+    }
+
+    #[test]
+    fn hint_brace_three_alternatives() {
+        let hint = regex_hint("{a,b,c}").unwrap();
+        assert!(hint.contains("(a|b|c)"), "got: {hint}");
+    }
+
+    #[test]
+    fn hint_multiple_brace_groups() {
+        let hint = regex_hint("{a,b}::{c,d}").unwrap();
+        assert!(hint.contains("(a|b)::(c|d)"), "got: {hint}");
+    }
+
+    #[test]
+    fn hint_leading_double_star() {
+        let hint = regex_hint("**/foo").unwrap();
+        assert!(hint.contains("`**`"), "got: {hint}");
+        assert!(hint.contains(".*"), "got: {hint}");
+    }
+
+    #[test]
+    fn hint_leading_star() {
+        let hint = regex_hint("*.rs").unwrap();
+        assert!(hint.contains("`*`"), "got: {hint}");
+    }
+
+    #[test]
+    fn no_hint_for_valid_regex() {
+        assert!(regex_hint("foo|bar").is_none());
+        assert!(regex_hint("foo.*bar").is_none());
+        assert!(regex_hint(r"\bword\b").is_none());
+    }
+
+    #[test]
+    fn no_hint_brace_without_comma() {
+        // {3} is a valid regex repetition, not brace alternation
+        assert!(regex_hint("a{3}").is_none());
+    }
 }
