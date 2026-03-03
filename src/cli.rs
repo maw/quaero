@@ -5,7 +5,7 @@ use clap_complete::Shell;
 ///
 /// Search both file contents and file names with a single command.
 #[derive(Parser, Debug)]
-#[command(name = "qro", version, about, after_help = "\
+#[command(name = "qro", version, disable_version_flag = true, about, after_help = "\
 Ignore files:\n  \
 qro respects .ignore files (same syntax as .gitignore) for excluding\n  \
 files and directories from search results. Place a .ignore file in any\n  \
@@ -79,9 +79,21 @@ pub(crate) struct Cli {
     #[arg(long)]
     pub log_only: bool,
 
+    /// Exclude matches that are part of a larger match of PATTERN (repeatable)
+    #[arg(short = 'd', long, action = clap::ArgAction::Append, value_name = "PATTERN")]
+    pub dont_match: Vec<String>,
+
+    /// Drop results where the line matches PATTERN anywhere (like grep -v, repeatable)
+    #[arg(short = 'V', long, action = clap::ArgAction::Append, value_name = "PATTERN")]
+    pub filter_out: Vec<String>,
+
     /// Show detailed output
     #[arg(short, long)]
     pub verbose: bool,
+
+    /// Print version
+    #[arg(long, action = clap::ArgAction::Version)]
+    pub version: (),
 
     /// Generate shell completions and exit
     #[arg(long, value_name = "SHELL")]

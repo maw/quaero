@@ -55,6 +55,54 @@ pub(crate) fn discover_git_repos(search_path: &str) -> Vec<PathBuf> {
     repos
 }
 
+/// Filter git log matches using dont_match and filter_out patterns.
+pub(crate) fn filter_git_log_matches(
+    matches: Vec<GitLogMatch>,
+    search_re: &regex::Regex,
+    dont_match: &[regex::Regex],
+    filter_out: &[regex::Regex],
+) -> Vec<GitLogMatch> {
+    matches
+        .into_iter()
+        .filter(|m| {
+            // filter_out: drop if any pattern matches the message
+            if filter_out.iter().any(|re| re.is_match(&m.message)) {
+                return false;
+            }
+
+            // dont_match: keep only if at least one search match is independent
+            if !dont_match.is_empty() {
+                let search_matches: Vec<(usize, usize)> = search_re
+                    .find_iter(&m.message)
+                    .map(|mat| (mat.start(), mat.end()))
+                    .collect();
+
+                if search_matches.is_empty() {
+                    return false;
+                }
+
+                let exclude_ranges: Vec<(usize, usize)> = dont_match
+                    .iter()
+                    .flat_map(|re| re.find_iter(&m.message))
+                    .map(|mat| (mat.start(), mat.end()))
+                    .collect();
+
+                let has_independent = search_matches.iter().any(|&(s_start, s_end)| {
+                    !exclude_ranges
+                        .iter()
+                        .any(|&(e_start, e_end)| s_start >= e_start && s_end <= e_end)
+                });
+
+                if !has_independent {
+                    return false;
+                }
+            }
+
+            true
+        })
+        .collect()
+}
+
 pub(crate) fn search_git_log(cli: &Cli) -> io::Result<Vec<GitLogMatch>> {
     let repos = discover_git_repos(&cli.path);
     let mut matches = Vec::new();

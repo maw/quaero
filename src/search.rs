@@ -233,6 +233,116 @@ pub(crate) fn search_content(cli: &Cli) -> io::Result<BTreeMap<String, Vec<Conte
     Ok(results)
 }
 
+/// Build regex patterns from `--dont-match` and `--filter-out` lists.
+/// Returns `(dont_match_regexes, filter_out_regexes)`.
+pub(crate) fn build_exclude_regexes(
+    cli: &Cli,
+) -> io::Result<(Vec<regex::Regex>, Vec<regex::Regex>)> {
+    let build = |patterns: &[String]| -> io::Result<Vec<regex::Regex>> {
+        patterns
+            .iter()
+            .map(|p| {
+                let escaped = if cli.fixed_strings {
+                    regex::escape(p)
+                } else {
+                    p.clone()
+                };
+                regex::RegexBuilder::new(&escaped)
+                    .case_insensitive(cli.ignore_case)
+                    .build()
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))
+            })
+            .collect()
+    };
+    Ok((build(&cli.dont_match)?, build(&cli.filter_out)?))
+}
+
+/// Returns true if the line should be kept after applying exclusion filters.
+///
+/// - `filter_out`: if any pattern matches the text, drop it.
+/// - `dont_match`: keep only if at least one search-pattern match is NOT
+///   subsumed by any dont_match match.
+fn should_keep(
+    text: &str,
+    search_re: &regex::Regex,
+    dont_match: &[regex::Regex],
+    filter_out: &[regex::Regex],
+) -> bool {
+    // filter_out: drop if any pattern matches anywhere
+    if filter_out.iter().any(|re| re.is_match(text)) {
+        return false;
+    }
+
+    // dont_match: check that at least one search match is independent
+    if !dont_match.is_empty() {
+        let search_matches: Vec<(usize, usize)> =
+            search_re.find_iter(text).map(|m| (m.start(), m.end())).collect();
+
+        if search_matches.is_empty() {
+            return false;
+        }
+
+        let exclude_ranges: Vec<(usize, usize)> = dont_match
+            .iter()
+            .flat_map(|re| re.find_iter(text))
+            .map(|m| (m.start(), m.end()))
+            .collect();
+
+        let has_independent = search_matches.iter().any(|&(s_start, s_end)| {
+            !exclude_ranges
+                .iter()
+                .any(|&(e_start, e_end)| s_start >= e_start && s_end <= e_end)
+        });
+
+        if !has_independent {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Filter content matches using dont_match and filter_out patterns.
+pub(crate) fn filter_content_matches(
+    matches: BTreeMap<String, Vec<ContentMatch>>,
+    search_re: &regex::Regex,
+    dont_match: &[regex::Regex],
+    filter_out: &[regex::Regex],
+) -> BTreeMap<String, Vec<ContentMatch>> {
+    matches
+        .into_iter()
+        .filter_map(|(path, content_matches)| {
+            let filtered: Vec<ContentMatch> = content_matches
+                .into_iter()
+                .filter(|m| match m {
+                    ContentMatch::Line { line, .. } => {
+                        should_keep(line, search_re, dont_match, filter_out)
+                    }
+                    ContentMatch::BinaryFile => true,
+                })
+                .collect();
+            if filtered.is_empty() {
+                None
+            } else {
+                Some((path, filtered))
+            }
+        })
+        .collect()
+}
+
+/// Filter filename matches using dont_match and filter_out patterns.
+pub(crate) fn filter_name_matches(
+    matches: Vec<String>,
+    search_re: &regex::Regex,
+    dont_match: &[regex::Regex],
+    filter_out: &[regex::Regex],
+) -> Vec<String> {
+    matches
+        .into_iter()
+        .filter(|path| should_keep(path, search_re, dont_match, filter_out))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
