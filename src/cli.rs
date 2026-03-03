@@ -67,16 +67,12 @@ pub(crate) struct Cli {
     #[arg(short = 'w', long)]
     pub word_regexp: bool,
 
-    /// Include git log matches [kept for backwards compat; on by default now]
-    #[arg(short = 'l', long, hide = true)]
-    pub log: bool,
-
     /// Disable git log search [git log is searched by default]
     #[arg(long = "no-log")]
     pub no_log: bool,
 
     /// Only search git logs
-    #[arg(long)]
+    #[arg(short = 'l', long)]
     pub log_only: bool,
 
     /// Exclude matches that are part of a larger match of PATTERN (repeatable)
@@ -102,8 +98,8 @@ pub(crate) struct Cli {
 
 impl Cli {
     /// Whether git log search should be performed.
-    /// On by default; --no-log disables, -l re-enables.
+    /// On by default; --no-log disables.
     pub fn wants_log(&self) -> bool {
-        !self.no_log || self.log
+        !self.no_log
     }
 }
